@@ -101,6 +101,64 @@ ok(Object.values(A.QUADRANTS).every(q => q.ask && q.ask.length > 10),
 ok(/近四季獲利/.test(got["2408"].caveat) && /循環/.test(got["2408"].caveat),
    "警語說明推算的是過去的報酬率，且點名循環股要小心");
 
+console.log("\n=== 推導出來的每股數字 ===");
+const cp = A.profile({ code: "2324", pe: 21.71, pb: 1.33, yield: 2.55, close: 43.2 }, []);
+ok(Math.abs(cp.eps - 1.99) < 0.01, "每股盈餘 = 股價 ÷ 本益比");
+ok(Math.abs(cp.bps - 32.48) < 0.01, "每股淨值 = 股價 ÷ 股價淨值比");
+ok(Math.abs(cp.earningsYield - 4.61) < 0.01, "盈餘殖利率 = 1 ÷ 本益比");
+// 配發率 = 每股股利/每股盈餘 = (殖利率×股價)/(股價/本益比) = 殖利率 × 本益比
+ok(Math.abs(cp.payoutRatio - 55.36) < 0.05, "配發率 = 殖利率 × 本益比");
+ok(A.payoutRatio(null, 10) === null && A.payoutRatio(3, 0) === null, "缺數字就不推算配發率");
+ok(/撐不久/.test(A.profile({ pe: 20, pb: 2, yield: 6, close: 100 }, []).payoutRatioNote),
+   "配發率超過 100% 會說撐不久");
+ok(/再投資報酬率/.test(A.profile({ pe: 20, pb: 5, yield: 0.5, close: 100 }, []).payoutRatioNote),
+   "配發率過低會問再投資報酬率");
+
+console.log("\n=== 每個象限都要有 needs 與求證清單 ===");
+Object.values(A.QUADRANTS).forEach(q => {
+  ok(Array.isArray(q.needs) && q.needs.length >= 2, `${q.id} 說明需要什麼樣的持有者`);
+  ok(Array.isArray(q.verify) && q.verify.length >= 2, `${q.id} 給出要求證的事`);
+  ok(q.verify.every(v => v.what && v.where && v.pass),
+     `${q.id} 每一項都有「查什麼／去哪查／怎樣算過關」`);
+});
+
+console.log("\n=== 體質 × 答案的對照 ===");
+const turnaround = A.profile(by["2324"], PEERS);      // 賭轉機
+const cyclical = A.profile(by["2382"], PEERS);        // 市場不信獲利能持續
+const growth = A.profile(by["6669"], PEERS);          // 成長定價
+
+let m = A.matchWith(turnaround, { understand: "vague", trend: "unchecked" });
+ok(m.conflicts.length === 2, "賭轉機 + 說不出它靠什麼賺錢 + 沒查三率 → 兩處錯配");
+ok(/建立在轉機上/.test(m.conflicts[0].head), "點出價格建立在轉機上");
+
+m = A.matchWith(turnaround, { understand: "deep", trend: "up" });
+ok(m.conflicts.length === 0 && m.fits.length === 1, "同一檔換成有做功課的人 → 沒有錯配");
+
+m = A.matchWith(cyclical, { drop: "panic", exit: "none" });
+ok(m.conflicts.length === 2, "循環高點 + 跌 20% 會賣 + 沒寫出場條件 → 兩處錯配");
+ok(/跌幅通常不只 20%/.test(m.conflicts[0].body), "說明循環反轉跌幅會更深");
+
+m = A.matchWith(growth, { horizon: "y1" });
+ok(m.conflicts.some(c => /一年內要用/.test(c.head)), "成長定價 + 錢一年內要用 → 錯配");
+m = A.matchWith(growth, { horizon: "y5" });
+ok(m.fits.some(f => /五年以上/.test(f.head)), "成長定價 + 錢放得久 → 對得上");
+
+// 高溢價 × 重押
+m = A.matchWith(growth, { weight: "w30up" });
+ok(m.conflicts.some(c => /不該押這麼重/.test(c.head)), "股價淨值比 8.76 + 押超過三成 → 錯配");
+m = A.matchWith(growth, { weight: "w5" });
+ok(m.fits.some(f => /5% 以內/.test(f.head)), "高溢價 + 小部位 → 對得上");
+
+// 為了領息而買
+m = A.matchWith(A.profile(by["2408"], PEERS), { motive: "income" });
+ok(m.conflicts.some(c => /殖利率只有/.test(c.head)),
+   "為了領息買南亞科（殖利率 0.26%）→ 目的與標的對不上");
+m = A.matchWith(A.profile(by["2382"], PEERS), { motive: "income" });
+ok(m.fits.some(f => /配得起/.test(f.body)), "廣達殖利率 4.76%、配發率合理 → 對得上");
+
+ok(A.matchWith(null, {}) === null && A.matchWith(turnaround, null) === null,
+   "缺任何一邊就不給對照，不硬湊");
+
 console.log("\n=== 決定性 ===");
 ok(JSON.stringify(A.profile(by["2408"], PEERS)) === JSON.stringify(A.profile(by["2408"], PEERS)),
    "同樣的輸入永遠推出同樣的判讀");

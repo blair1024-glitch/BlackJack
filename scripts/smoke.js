@@ -405,6 +405,13 @@ async function run(vp) {
   ok(/那你該去查什麼/.test(prof), "不只下標籤，給出下一步該查什麼");
   ok(/相對位置/.test(prof) && /這份名單/.test(prof), "給出在同名單裡的排名");
   ok(/近四季獲利/.test(prof), "標明推算的是過去的報酬率");
+  ok(/每股盈餘/.test(prof) && /配發率/.test(prof), "帶出推導的每股數字與配發率");
+  ok(/配發率＝殖利率×本益比/.test(prof), "把配發率的推導式寫出來");
+  ok(/這種標的需要持有者具備/.test(prof), "說明這種體質需要什麼樣的持有者");
+  ok(/三件要自己去求證的事/.test(prof), "給出求證清單");
+  ok(/去哪查/.test(prof) && /怎樣算過關/.test(prof),
+     "求證清單每項都有去哪查與怎樣算過關");
+  ok(/公開資訊觀測站/.test(prof), "求證清單指到具體的查詢來源");
   ok(!/建議買進|該買|值得買/.test(prof), "沒有買賣指令");
 
   // 換成別條路徑的標的，判讀要跟著換
@@ -465,7 +472,9 @@ async function run(vp) {
         { code: "2884", name: "玉山金", price: 30.15, prevClose: 28.50,
           open: 28.6, high: 30.2, low: 28.5, volume: 12345, time: "13:30:00" },
         { code: "0050", name: "元大台灣50", price: 190.0, prevClose: 195.0,
-          open: 194, high: 195, low: 189, volume: 5000, time: "13:30:00" }
+          open: 194, high: 195, low: 189, volume: 5000, time: "13:30:00" },
+        { code: "2330", name: "台積電", price: 2395, prevClose: 2435,
+          open: 2435, high: 2440, low: 2395, volume: 18859, time: "13:30:00" }
       ]
     })
   }));
@@ -498,22 +507,36 @@ async function run(vp) {
     document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
   ok(!overflow2, "接上報價之後仍然沒有橫向捲動");
 
-  // 停損價比對
+  // 停損價比對。順便測「體質 × 答案」的對照：
+  // 2330 在假資料裡是 pe 21.5、pb 5.5 → 成長定價 + 高帳面溢價，
+  // 再把部位改成 10～30%，就會撞出一個錯配（但不是硬紅旗，流程走得下去）。
   for (const [qid, optId] of Object.entries(BEST)) {
     await page.locator(`[data-q="${qid}"] [data-opt="${optId}"]`).click();
   }
-  await page.locator(".wl-row").first().click();
+  await page.locator('[data-q="weight"] [data-opt="w30"]').click();
+  await page.fill("#stk", "2330");
+  await page.waitForTimeout(900);
   await page.click("#calc");
   await page.waitForSelector(".path-steps");
+
+  // ---- 框架：體質 × 你的答案 ----
+  const match = await page.locator(".card", { hasText: "體質 × 你的答案" }).textContent();
+  ok(/跟你對不對得上/.test(match), "裁決頁把體質接回八題");
+  ok(/兩邊對上才是該不該買/.test(match), "講清楚為什麼要兩邊都看");
+  ok(/對不上不代表不能買/.test(match), "錯配給的是選項，不是禁令");
+  ok((await page.locator(".match-bad").count()) > 0, "列出對不上的地方");
+  ok(/不該押這麼重/.test(match), "股價淨值比 5.5 + 押一到三成 → 點出錯配");
+  ok((await page.locator(".match-ok").count()) > 0, "也列出對得上的地方");
+  ok(/五年以上用不到/.test(match), "成長定價 + 錢放得久 → 對得上");
   await page.click("#tolist");
   await page.waitForSelector("#save");
-  await page.fill("#r-stopprice", "31.5");     // 高於現價 30.15 → 應該判定跌破
+  await page.fill("#r-stopprice", "2500");    // 高於 2330 的現價 2395 → 應該判定跌破
   await page.click("#save");
   await page.waitForSelector(".cl");
   await page.waitForSelector(".stop-hit", { timeout: 8000 });
   const hit = await page.locator(".stop-hit").textContent();
   ok(/已經跌破你設的停損價/.test(hit), "現價低於停損價時明確示警");
-  ok(/30\.15/.test(hit), "示警訊息帶上現價");
+  ok(/2395\.00/.test(hit), "示警訊息帶上現價");
 
   await page.locator(".cl-del").click();
   await page.waitForTimeout(200);

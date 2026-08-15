@@ -952,9 +952,46 @@
         '<div class="fine">推算的股東權益報酬率（ROE）</div>' +
       "</div>" +
 
+      '<div class="derived">' +
+        (p.eps != null ? '<div><span>每股盈餘</span><b class="tnum">' + p.eps.toFixed(2) + "</b></div>" : "") +
+        (p.bps != null ? '<div><span>每股淨值</span><b class="tnum">' + p.bps.toFixed(2) + "</b></div>" : "") +
+        (p.earningsYield != null ? '<div><span>盈餘殖利率</span><b class="tnum">' +
+          p.earningsYield.toFixed(2) + "%</b></div>" : "") +
+        (p.payoutRatio != null ? '<div><span>配發率</span><b class="tnum">' +
+          p.payoutRatio.toFixed(0) + "%</b></div>" : "") +
+      "</div>" +
+      '<p class="fine">每股盈餘＝股價÷本益比　每股淨值＝股價÷股價淨值比　' +
+        "盈餘殖利率＝1÷本益比　<b>配發率＝殖利率×本益比</b>。全部從公開數字推導，" +
+        "沒有翻財報。</p>" +
+
+      (p.payoutRatioNote
+        ? '<div class="note-box"><b>配發率 ' + p.payoutRatio.toFixed(0) + "%</b><br>" +
+          esc(p.payoutRatioNote) + "</div>"
+        : "") +
+
       '<h3 class="h2" style="margin-top:18px">' + esc(p.quadrant.title) + "</h3>" +
       '<p class="lede" style="margin-top:8px">' + esc(p.quadrant.why) + "</p>" +
       '<div class="ask-box"><b>那你該去查什麼</b><br>' + esc(p.quadrant.ask) + "</div>" +
+
+      (p.quadrant.needs
+        ? '<p class="week-label">這種標的需要持有者具備</p><ul class="week-list">' +
+          p.quadrant.needs.map(function (n) { return "<li>" + esc(n) + "</li>"; }).join("") +
+          "</ul>"
+        : "") +
+
+      (p.quadrant.verify
+        ? '<p class="week-label">三件要自己去求證的事</p>' +
+          '<div class="verify">' +
+            p.quadrant.verify.map(function (v, i) {
+              return '<div class="verify-item">' +
+                '<div class="verify-what"><span class="verify-n">' + (i + 1) + "</span>" +
+                  esc(v.what) + "</div>" +
+                '<div class="fine"><b>去哪查</b>　' + esc(v.where) + "</div>" +
+                '<div class="fine"><b>怎樣算過關</b>　' + esc(v.pass) + "</div>" +
+              "</div>";
+            }).join("") +
+          "</div>"
+        : "") +
 
       (p.premium
         ? '<div class="note-box"><b>' + esc(p.premium.head) + "</b><br>" +
@@ -1097,6 +1134,8 @@
             }).join("") +
           "</ol>" +
         "</div>" +
+
+        matchHTML() +
 
         screenHTML() +
 
@@ -1349,6 +1388,48 @@
         });
       });
     }
+  }
+
+  /* 框架的接點：體質需要什麼樣的持有者 × 你的八題答案 = 對不對得上。
+     只看體質不知道適不適合你，只看八題不知道這檔要求什麼。 */
+  function matchHTML() {
+    var code = LIST.codeOf(state.stock);
+    if (!code) return "";
+    var row = screenRowFor(code);
+    if (!row) return "";
+    var p = AN.profile(row, peersFor(code));
+    if (!p.ok) return "";
+    var m = AN.matchWith(p, state.decideAnswers);
+    if (!m || (!m.fits.length && !m.conflicts.length)) return "";
+
+    return '<div class="card">' +
+      '<p class="eyebrow">體質 × 你的答案</p>' +
+      '<h3 class="h2">' + esc(code) + (row.name ? " " + esc(row.name) : "") +
+        " 這種標的，跟你對不對得上</h3>" +
+      '<p class="fine" style="margin-top:8px">上面八題算的是你的準備，' +
+        "體質速讀說的是這檔要求什麼。兩邊對上才是該不該買——" +
+        "只看其中一邊都不完整。</p>" +
+
+      (m.conflicts.length
+        ? '<p class="week-label">對不上的地方</p>' +
+          m.conflicts.map(function (c) {
+            return '<div class="match-bad"><b>' + esc(c.head) + "</b><p>" +
+              esc(c.body) + "</p></div>";
+          }).join("")
+        : '<p class="week-label">沒有明顯的錯配</p>') +
+
+      (m.fits.length
+        ? '<p class="week-label">對得上的地方</p>' +
+          m.fits.map(function (f) {
+            return '<div class="match-ok"><b>' + esc(f.head) + "</b><p>" +
+              esc(f.body) + "</p></div>";
+          }).join("")
+        : "") +
+
+      '<p class="fine" style="margin-top:14px">對不上不代表不能買，' +
+        "代表你要嘛換標的、要嘛改條件（縮小部位、拉長期限、先把功課補完）。" +
+        "帶著沒解決的錯配進場，那些問題會在最糟的時候一起出現。</p>" +
+    "</div>";
   }
 
   /* 觀察名單怎麼自己篩——「推薦個股」的誠實版本 */
