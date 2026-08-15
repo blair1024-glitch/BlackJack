@@ -38,6 +38,9 @@
     } catch (e) { }
     return null;
   }
+  /* 自用模式：只影響措辭，不影響任何判斷邏輯。見 assets/config.js 的說明。 */
+  function selfUse() { return !!(window.CONFIG && window.CONFIG.selfUse); }
+
   function reducedMotion() {
     return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   }
@@ -698,9 +701,12 @@
             "結論是從你的答案算出來的。</p>" +
         "</div>" +
 
-        '<div class="notice"><b>先說清楚</b>　這個工具<b>不推薦任何個股</b>，也不查即時股價。' +
-          "在台灣，對不特定人推薦個股買賣屬於證券投資顧問業務，需要金管會核發的執照。" +
-          "它做的是把判斷的步驟攤開，讓你自己得出結論。</div>" +
+        (selfUse()
+          ? '<div class="notice"><b>這是你自己的判斷</b>　結論從你的答案算出來，' +
+            "不是別人的意見。答案變了結論就會變，所以誠實回答比答得好看重要。</div>"
+          : '<div class="notice"><b>先說清楚</b>　這個工具<b>不推薦任何個股</b>，也不查即時股價。' +
+            "在台灣，對不特定人推薦個股買賣屬於證券投資顧問業務，需要金管會核發的執照。" +
+            "它做的是把判斷的步驟攤開，讓你自己得出結論。</div>") +
 
         '<div class="card">' +
           '<div class="field"><label for="stk">你在考慮哪一檔？</label>' +
@@ -809,10 +815,14 @@
     var items = sc.items || [];
     return '<div class="card">' +
       '<p class="eyebrow">觀察名單 · 資料日期 ' + esc(meta.updated) + "</p>" +
-      '<h3 class="h2">符合這條路徑條件的標的</h3>' +
-      '<p class="fine" style="margin-top:8px"><b>這是篩選結果，不是推薦。</b>' +
-        "它只代表這幾檔通過了下面列出的條件，不代表適合你買。點一檔帶入上面的欄位，" +
-        "再用八題判斷一次。</p>" +
+      '<h3 class="h2">' + (selfUse() ? "今天通過你設的條件的標的" : "符合這條路徑條件的標的") + "</h3>" +
+      '<p class="fine" style="margin-top:8px">' +
+        (selfUse()
+          ? "條件寫在 scripts/fetch_screen.py，想調就去改。通過條件不等於該買——" +
+            "點一檔帶入上面的欄位，還是要跑完八題。"
+          : "<b>這是篩選結果，不是推薦。</b>它只代表這幾檔通過了下面列出的條件，" +
+            "不代表適合你買。點一檔帶入上面的欄位，再用八題判斷一次。") +
+      "</p>" +
 
       (sc.criteria && sc.criteria.length
         ? '<p class="week-label">篩選條件</p><ul class="week-list">' +
@@ -1389,6 +1399,16 @@
     if (step.q.type === "multi") return renderMulti(step.q);
     if (step.q.type === "slider") return renderSlider(step.q);
   }
+
+  /* 頁尾免責：公開發布時要完整，自用時縮短——但「不保證結果」那句不拿掉。 */
+  (function () {
+    if (!selfUse()) return;
+    var demo = document.querySelector(".site-foot .demo-note");
+    var dis = document.querySelector(".site-foot .disclaimer");
+    if (demo) demo.textContent = "自用工具原型：沒有後端、沒有金流、沒有追蹤碼。方案頁的價格是版面示範。";
+    if (dis) dis.textContent = "這是給自己用的判斷輔助，不保證任何投資結果。" +
+      "稅率、費率與制度規定請以主管機關當年度公告為準。";
+  })();
 
   render();
 })();

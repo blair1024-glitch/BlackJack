@@ -432,6 +432,41 @@ async function run(vp) {
   await page.locator(".cl-del").click();
   await page.waitForTimeout(200);
 
+  // ---- 自用模式：只換措辭，判斷邏輯一個字都不能動 ----
+  await page.goto(BASE, { waitUntil: "domcontentloaded" });
+  await page.evaluate(() => {
+    window.CONFIG.selfUse = true;
+    window.SCREEN = window.__FIXTURE_SCREEN;
+  });
+  await runFunnel(page);
+  await page.click("#next"); await page.waitForSelector(".week");
+  await page.click("#next"); await page.waitForSelector("#calc");
+
+  const selfNotice = await page.locator(".notice").first().textContent();
+  ok(/這是你自己的判斷/.test(selfNotice), "自用模式換掉法規說明");
+  ok(!/證券投資顧問業務/.test(selfNotice), "自用模式不再顯示公開發布用的法律措辭");
+
+  const selfWl = await page.locator(".card").nth(1).textContent();
+  ok(/今天通過你設的條件/.test(selfWl), "自用模式的名單標題改了");
+  // 這幾樣不管哪個模式都要在——它們是工程品質，不是法律措辭
+  ok(/資料日期/.test(selfWl), "自用模式仍然標出資料日期");
+  ok(/API 查不到/.test(selfWl), "自用模式仍然列出要自己查的項目");
+  ok(/還是要跑完八題/.test(selfWl), "自用模式仍然要求逐檔跑判斷");
+
+  // 硬紅旗不能因為自用就放行
+  await page.fill("#stk", "測試");
+  const boxes3 = page.locator("[data-q]");
+  for (let i = 0; i < (await boxes3.count()); i++) {
+    await boxes3.nth(i).locator(".option").first().click();
+  }
+  await page.click("#calc");
+  await page.waitForSelector("h2.h1");
+  ok((await page.locator("h2.h1").textContent()).trim() === "先不要買",
+     "自用模式的硬紅旗照樣擋");
+
+  ok(/不保證任何投資結果/.test(await page.locator(".site-foot").textContent()),
+     "自用模式的頁尾仍然寫明不保證結果");
+
   ok(errors.length === 0, "沒有 console 錯誤" + (errors.length ? "：" + errors.join(" | ") : ""));
 
   await browser.close();
