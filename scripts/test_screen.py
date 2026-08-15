@@ -12,8 +12,10 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from fetch_screen import (build_screens, is_etf, merge, normalise,  # noqa: E402
-                          range_stats, update_history)
+import re  # noqa: E402
+
+from fetch_screen import (MIN_VALUE, build_screens, is_etf,  # noqa: E402
+                          merge, normalise, range_stats, update_history)
 
 failed = 0
 
@@ -103,6 +105,36 @@ for path, s in sc.items():
     if path != "riskFirst":
         ok(len(s["criteria"]) >= 2, f"{path} 列出篩選條件")
     ok(len(s["manual"]) >= 1, f"{path} 列出 API 查不到、要自己查的項目")
+
+print("\n=== 顯示的門檻要等於實際門檻 ===")
+# 這一組是為了擋住一個真的發生過的 bug：ETF 那條路徑的標籤寫成
+# 「≥ 200000 萬元」，比實際的 2,000 萬大 100 倍。原本的測試只檢查
+# 「有沒有列出條件」，沒檢查內容對不對，所以放過了。
+
+def threshold_line(path):
+    for c in sc[path]["criteria"]:
+        if "成交金額" in c:
+            return c
+    return None
+
+lines = {p: threshold_line(p) for p in ("etfStart", "cashflow", "research")}
+for path, line in lines.items():
+    ok(line is not None, f"{path} 有寫出成交金額門檻")
+
+texts = [l for l in lines.values() if l]
+nums = []
+for path, line in lines.items():
+    if not line:
+        continue
+    m = re.search(r"≥\s*([\d,]+)\s*萬元", line)
+    ok(m is not None, f"{path} 的門檻文字格式解析得出來（{line}）")
+    if m:
+        val = int(m.group(1).replace(",", "")) * 10_000
+        nums.append((path, val))
+        ok(val == MIN_VALUE,
+           f"{path} 顯示的門檻等於實際的 MIN_VALUE（顯示 {m.group(1)} 萬 = {val:,}）")
+
+ok(len(set(v for _, v in nums)) == 1, "三條路徑顯示的門檻一致")
 
 print("\n=== 名單長度上限 ===")
 ok(all(len(s["items"]) <= 12 for s in sc.values()), "每份清單最多 12 檔")
