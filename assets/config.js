@@ -5,7 +5,7 @@ window.CONFIG = {
   /* 盤中報價代理的網址。留空就不抓報價，網站其他功能照常運作。
      部署方式看 worker/quote-proxy.js 開頭的說明，Cloudflare 免費方案就夠。
      例："https://tw-quote.你的帳號.workers.dev" */
-  quoteProxy: "",
+  quoteProxy: "https://tw-quote.blair1024.workers.dev/",
 
   /* 幾秒重抓一次。證交所那個端點是給人看的，不要調到個位數。 */
   refreshSeconds: 15,
