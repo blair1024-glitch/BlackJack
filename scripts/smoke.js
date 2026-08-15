@@ -85,6 +85,32 @@ async function run(vp) {
 
   await page.click("#next");
 
+  // ---- 完整計畫：使用者真正拿得走的東西 ----
+  await page.waitForSelector(".week");
+  const weekCount = await page.locator(".week").count();
+  const planHead = await page.locator("h2.h1").textContent();
+  const declaredWeeks = parseInt(planHead.match(/(\d+)\s*週/)[1], 10);
+  ok(weekCount === declaredWeeks, `週次卡數量等於標題宣稱的週數（${weekCount} 張 / ${declaredWeeks} 週）`);
+  ok((await page.locator(".week-n").first().textContent()).includes("第 1 週"), "從第 1 週開始排");
+  ok((await page.locator(".task-list li").count()) > 0, "每週有可勾選的任務");
+  ok((await page.locator(".week-check").count()) > 0, "有檢查點");
+  ok(await page.locator("#print").isVisible(), "有列印按鈕");
+  ok(await page.locator("#dl").isVisible(), "有下載按鈕");
+
+  // 真的下載得到檔案
+  const dl = await Promise.all([page.waitForEvent("download"), page.click("#dl")]);
+  const fname = dl[0].suggestedFilename();
+  // 檔名必須是 ASCII，Chromium 遇到中文檔名會退回成沒有副檔名的 "download"
+  ok(/^tw-stock-study-plan-\d+w\.md$/.test(fname), `下載得到正確檔名（${fname}）`);
+  const stream = await dl[0].createReadStream();
+  let md = "";
+  for await (const c of stream) md += c;
+  ok(md.includes("## 第 1 週"), "下載的檔案裡有週次內容");
+  ok(md.includes("不構成投資建議"), "下載的檔案帶著免責聲明");
+  ok(md.length > 1500, `下載的檔案有份量（${md.length} 字元）`);
+
+  await page.click("#next");
+
   // ---- Email 驗證 ----
   await page.waitForSelector("#email");
   await page.fill("#email", "不是信箱");
@@ -112,7 +138,21 @@ async function run(vp) {
   ok(await page.locator("#again").isVisible(), "結帳後到成功屏");
 
   // ---- 返回鍵 ----
-  await page.click("#again");
+  await page.click("#toplan");
+  await page.waitForSelector(".week");
+  ok(true, "成功屏可以回到完整計畫");
+  await page.click("#back-btn");           // 計畫 → 結果
+  await page.waitForSelector(".path-steps");
+  await page.click("#next");               // 結果 → 計畫
+  await page.waitForSelector(".week");
+  ok(true, "計畫與結果之間可以來回");
+
+  await page.click("#next");
+  await page.waitForSelector("#email");
+  await page.click("#back-btn");
+  ok(await page.locator(".week").count() > 0, "Email 屏返回會回到完整計畫");
+
+  await page.goto(BASE, { waitUntil: "domcontentloaded" });
   await page.click("#start");
   await page.locator(".option").nth(0).click();
   await page.waitForTimeout(420);

@@ -5,6 +5,7 @@
   "use strict";
 
   var QUIZ = window.QUIZ, SCORING = window.SCORING, CHART = window.CHART;
+  var BUILDER = window.PLAN_BUILDER;
   var T = window.ANALYTICS, N = T.NAMES;
 
   var app = document.getElementById("app");
@@ -64,10 +65,11 @@
 
   /* ---- 狀態 ------------------------------------------------------------ */
   var state = {
-    flow: "intro",          // intro | steps | analyzing | plan | email | pricing | done
+    flow: "intro",          // intro | steps | analyzing | plan | planDetail | email | pricing | done
     stepIndex: 0,
     answers: {},
     result: null,
+    studyPlan: null,        // 週次表，進 planDetail 時才建
     email: "",
     plan: "p12"
   };
@@ -93,13 +95,15 @@
 
   function syncBack() {
     var canBack = (state.flow === "steps" && state.stepIndex > 0) ||
-                  state.flow === "email" || state.flow === "pricing";
+                  state.flow === "planDetail" || state.flow === "email" ||
+                  state.flow === "pricing";
     backBtn.hidden = !canBack;
   }
 
   function goBack() {
     if (state.flow === "steps" && state.stepIndex > 0) { state.stepIndex--; render(); return; }
-    if (state.flow === "email") { state.flow = "plan"; render(); return; }
+    if (state.flow === "planDetail") { state.flow = "plan"; render(); return; }
+    if (state.flow === "email") { state.flow = "planDetail"; render(); return; }
     if (state.flow === "pricing") { state.flow = "email"; render(); return; }
   }
   backBtn.addEventListener("click", goBack);
@@ -428,13 +432,108 @@
           "</ol>" +
         "</div>" +
 
-        '<div class="sticky-foot"><button class="btn" id="next">把這份計畫存起來</button></div>' +
+        '<div class="sticky-foot"><button class="btn" id="next">看我的完整 ' + r.weeks + ' 週計畫</button>' +
+          '<p class="fine" style="text-align:center;margin-top:8px">免費，不用留 Email</p></div>' +
       "</div>"
     );
 
     // 進度條等畫面上去之後再長，才看得到動畫
     requestAnimationFrame(function () {
       $$(".meter-fill").forEach(function (el) { el.style.width = el.getAttribute("data-w") + "%"; });
+    });
+
+    $("#next").addEventListener("click", function () { state.flow = "planDetail"; render(); });
+  }
+
+  /* ---- 完整計畫：這才是使用者真正拿得走的東西 -------------------------- */
+  function renderPlanDetail() {
+    var r = state.result;
+    if (!state.studyPlan) state.studyPlan = BUILDER.build(r, state.answers);
+    var plan = state.studyPlan;
+    T.track(N.planViewed, { path: plan.pathId, weeks: plan.totalWeeks });
+
+    var weeksHTML = plan.weeks.map(function (w) {
+      return '<article class="card week">' +
+        '<div class="week-head"><span class="week-n">第 ' + w.n + " 週</span>" +
+          (w.phase ? '<span class="badge badge-soft">' + esc(w.phase) + "</span>" : "") + "</div>" +
+        '<h3 class="h2">' + esc(w.title) + "</h3>" +
+        (w.why ? '<p class="lede">' + esc(w.why) + "</p>" : "") +
+        (w.points.length
+          ? '<p class="week-label">本週重點</p><ul class="week-list">' +
+            w.points.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>"
+          : "") +
+        (w.tasks.length
+          ? '<p class="week-label">本週任務</p><ul class="task-list">' +
+            w.tasks.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>"
+          : "") +
+        (w.check ? '<p class="week-check"><b>檢查點</b>　' + esc(w.check) + "</p>" : "") +
+      "</article>";
+    }).join("");
+
+    paint(
+      '<div class="stack-lg">' +
+        "<div>" +
+          '<p class="eyebrow">你的完整計畫</p>' +
+          '<h2 class="h1" data-focus tabindex="-1">' + plan.totalWeeks + " 週・" + esc(plan.pathName) + "</h2>" +
+          '<p class="lede">' + esc(plan.intro) + "</p>" +
+          '<p style="margin-top:12px">' +
+            '<span class="badge">' + esc(plan.rhythm.perDay) + "</span> " +
+            '<span class="badge badge-soft">' + plan.counts.points + " 條重點</span> " +
+            '<span class="badge badge-soft">' + plan.counts.tasks + " 項任務</span></p>" +
+        "</div>" +
+
+        '<div class="notice"><b>節奏建議</b>　' + esc(plan.rhythm.how) + "</div>" +
+
+        weeksHTML +
+
+        (plan.extras.length
+          ? '<div class="card"><h3 class="h2">之後可以再學</h3>' +
+            '<p class="fine">你這次選的時間排不下這幾個單元，等前面走完再回來。</p>' +
+            '<ul class="week-list" style="margin-top:12px">' +
+              plan.extras.map(function (e) {
+                return "<li><b>" + esc(e.title) + "</b>：" + esc(e.why) + "</li>";
+              }).join("") +
+            "</ul></div>"
+          : "") +
+
+        '<div class="card no-print">' +
+          '<h3 class="h2">把計畫帶走</h3>' +
+          '<p class="fine">這份計畫在你的瀏覽器裡，重整就沒了。存一份起來。</p>' +
+          '<div style="margin-top:14px;display:grid;gap:10px">' +
+            '<button class="btn btn-ghost" id="print">列印，或存成 PDF</button>' +
+            '<button class="btn btn-ghost" id="dl">下載 Markdown 檔</button>' +
+          "</div>" +
+        "</div>" +
+
+        '<div class="sticky-foot no-print">' +
+          '<button class="btn" id="next">也寄一份到我的信箱</button></div>' +
+      "</div>"
+    );
+
+    $("#print").addEventListener("click", function () {
+      T.track(N.planPrinted, { path: plan.pathId });
+      window.print();
+    });
+
+    $("#dl").addEventListener("click", function () {
+      var md = BUILDER.toMarkdown(plan, r);
+      var blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      // 檔名刻意用 ASCII：Chromium 遇到含中文的 download 檔名會整個丟掉，
+      // 退回成沒有副檔名的 "download"，使用者拿到一個打不開的檔案。
+      // 檔案內容本身是 UTF-8 中文，不受影響。
+      a.download = "tw-stock-study-plan-" + plan.totalWeeks + "w.md";
+      document.body.appendChild(a);
+      a.click();
+      // 不能馬上移除：Chromium 是非同步處理下載的，太早拔掉 <a> 會連 download
+      // 屬性一起弄丟，檔名就變成 "download"。等一秒再一起清掉。
+      setTimeout(function () {
+        if (a.parentNode) a.parentNode.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 1000);
+      T.track(N.planDownloaded, { path: plan.pathId, bytes: md.length });
     });
 
     $("#next").addEventListener("click", function () { state.flow = "email"; render(); });
@@ -629,11 +728,14 @@
           esc(PLANS.filter(function (p) { return p.id === state.plan; })[0].name) + "</p>" +
         '<div class="notice">這是原型，沒有真的扣款、也沒有寄出任何信件。' +
           "上面所有數字都來自你剛才的作答，重做一次換不同答案，結果就會不一樣。</div>" +
-        '<button class="btn btn-ghost" id="again">重做一次</button>' +
+        '<button class="btn" id="toplan">回我的完整計畫</button>' +
+        '<button class="btn btn-ghost" id="again" style="margin-top:10px">重做一次</button>' +
       "</div>"
     );
+    $("#toplan").addEventListener("click", function () { state.flow = "planDetail"; render(); });
     $("#again").addEventListener("click", function () {
-      state = { flow: "intro", stepIndex: 0, answers: {}, result: null, email: "", plan: "p12" };
+      state = { flow: "intro", stepIndex: 0, answers: {}, result: null,
+                studyPlan: null, email: "", plan: "p12" };
       render();
     });
   }
@@ -645,6 +747,7 @@
     if (state.flow === "intro") return renderIntro();
     if (state.flow === "analyzing") return renderAnalyzing();
     if (state.flow === "plan") return renderPlan();
+    if (state.flow === "planDetail") return renderPlanDetail();
     if (state.flow === "email") return renderEmail();
     if (state.flow === "pricing") return renderPricing();
     if (state.flow === "done") return renderDone();
