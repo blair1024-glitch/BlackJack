@@ -20,15 +20,31 @@ const MIS = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp";
 const CACHE_SECONDS = 10;
 const MAX_CODES = 30;
 
-// 想限制只有自己的網站能用，把網址填進來；留空代表不限制。
+// 允許呼叫這支 Worker 的網站。留空陣列代表不限制。
+//
+// 這個 repo 是公開的，所以 assets/config.js 裡的 Worker 網址等於公開，
+// 任何人翻到都能拿去用你的額度。填上來源就只有自己的站呼叫得動。
 const ALLOWED_ORIGINS = [
-  // "https://blair1024-glitch.github.io",
+  "https://blair1024-glitch.github.io",
 ];
 
+// 本機開發不管開在哪個 port 都放行，省得每次換 port 都要回來改這裡。
+const ALLOW_LOCALHOST = true;
+
+function isAllowed(origin) {
+  if (ALLOWED_ORIGINS.length === 0) return true;
+  if (ALLOWED_ORIGINS.includes(origin)) return true;
+  if (ALLOW_LOCALHOST && /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) return true;
+  return false;
+}
+
 function cors(origin) {
+  // 不允許的來源回傳第一個白名單網址，瀏覽器會因為對不上而擋掉。
+  // 沒有 Origin 標頭的情況（直接在網址列打開）不受 CORS 管，照樣看得到 JSON，
+  // 所以 docs/deploy.md 那個用瀏覽器驗證的步驟仍然有效。
   const allow = ALLOWED_ORIGINS.length === 0
     ? "*"
-    : (ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]);
+    : (isAllowed(origin) ? (origin || ALLOWED_ORIGINS[0]) : ALLOWED_ORIGINS[0]);
   return {
     "Access-Control-Allow-Origin": allow,
     "Access-Control-Allow-Methods": "GET, OPTIONS",

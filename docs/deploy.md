@@ -79,19 +79,26 @@ quoteProxy: "https://tw-quote.你的子網域.workers.dev",
 
 手機上可以用 GitHub 網頁版改：進 repo → `assets/config.js` → 右上角鉛筆 → Commit。
 
-### 6.（選用）限制只有自己的站能呼叫
+### 6. 限制只有自己的站能呼叫（已經設好了）
 
-`worker/quote-proxy.js` 最上面：
+`worker/quote-proxy.js` 最上面已經填好：
 
 ```js
 const ALLOWED_ORIGINS = [
-  "https://你的網站.pages.dev",
-  "http://127.0.0.1:8899",      // 本機開發也要加，不然本機會被擋
+  "https://blair1024-glitch.github.io",
 ];
+
+const ALLOW_LOCALHOST = true;   // 本機開發不管哪個 port 都放行
 ```
 
-留空陣列代表不限制。這支只轉發公開資料，被別人用走最多是耗你的額度——
-免費方案一天十萬次請求，這種用量大概用掉千分之一。
+**這個 repo 是公開的**，所以 `assets/config.js` 裡的 Worker 網址等於公開，
+任何人翻到都能拿去用你的額度。填上來源之後，只有你的站呼叫得動。
+
+換了網域（例如改用 Cloudflare Pages）就把新網址加進陣列。
+留空陣列代表完全不限制。
+
+> 沒有 `Origin` 標頭的請求（直接在網址列打開）不受 CORS 管，
+> 所以上面第 4 步用瀏覽器驗證的方式照樣有效。
 
 ---
 
@@ -179,8 +186,8 @@ selfUse: true
 不要把 `CACHE_SECONDS` 或 `refreshSeconds` 調低。
 
 **畫面上報價一直是「…」**
-開瀏覽器主控台看有沒有 CORS 錯誤。多半是 `ALLOWED_ORIGINS` 填了但漏掉目前的網址
-（例如本機測試忘了加 `http://127.0.0.1:8899`）。
+開瀏覽器主控台看有沒有 CORS 錯誤。多半是網域換了但 `ALLOWED_ORIGINS` 沒跟著加
+（本機開發不用管，`ALLOW_LOCALHOST` 已經涵蓋任何 port）。
 
 **GitHub Pages 突然 404**
 repo 轉 private 了，而帳號是免費方案。改用 Cloudflare Pages，或把 repo 轉回 public。
