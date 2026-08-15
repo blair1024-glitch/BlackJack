@@ -6,7 +6,7 @@
 
   var QUIZ = window.QUIZ, SCORING = window.SCORING, CHART = window.CHART;
   var BUILDER = window.PLAN_BUILDER, DECIDE = window.DECISION;
-  var LIST = window.CHECKLIST;
+  var LIST = window.CHECKLIST, Q = window.QUOTE;
   var T = window.ANALYTICS, N = T.NAMES;
 
   var app = document.getElementById("app");
@@ -165,6 +165,47 @@
     $("#go").addEventListener("click", go);
     $("#skip").addEventListener("click", function () { state.name = ""; state.flow = "analyzing"; render(); });
     $("#nm").addEventListener("keydown", function (e) { if (e.key === "Enter") go(); });
+  }
+
+  /* ---- 報價：台股慣例紅漲綠跌，跟美股相反 ---------------------------- */
+  function quoteHTML(q) {
+    if (!q || q.price == null) return '<span class="q-none">—</span>';
+    var tone = Q.toneOf(q.change);
+    var sign = q.change > 0 ? "+" : "";
+    return '<span class="q q-' + tone + '">' +
+      "<b>" + q.price.toFixed(2) + "</b>" +
+      (q.changePct == null ? "" :
+        " " + sign + q.changePct.toFixed(2) + "%") +
+      (q.basis !== "成交" ? '<span class="q-basis">' + esc(q.basis) + "</span>" : "") +
+    "</span>";
+  }
+
+  /* 現價落在累積區間的哪個位置。天數不足一年就照實說。 */
+  function rangeHTML(item, q) {
+    if (!item || item.high == null || item.low == null || item.high <= item.low) return "";
+    if (!q || q.price == null) return "";
+    var pct = Math.round(((q.price - item.low) / (item.high - item.low)) * 100);
+    pct = Math.max(0, Math.min(100, pct));
+    var label = item.histDays >= 240 ? "近一年區間" : "累積 " + item.histDays + " 個交易日的區間";
+    return '<div class="q-range"><div class="q-range-bar">' +
+      '<span class="q-range-pin" style="left:' + pct + '%"></span></div>' +
+      '<div class="fine">' + esc(label) + "：低 " + item.low.toFixed(2) +
+      "　高 " + item.high.toFixed(2) + "　現在約在 " + pct + "%</div></div>";
+  }
+
+  /* 抓報價並把畫面上對應的位置填進去。失敗就維持原樣，不擋任何流程。 */
+  function hydrateQuotes(codes, itemsByCode) {
+    if (!Q.enabled() || !codes.length) return;
+    Q.fetch(codes).then(function (map) {
+      Object.keys(map).forEach(function (code) {
+        var slot = document.querySelector('[data-q-slot="' + code + '"]');
+        if (slot) slot.innerHTML = quoteHTML(map[code]);
+        var rangeSlot = document.querySelector('[data-q-range="' + code + '"]');
+        if (rangeSlot && itemsByCode && itemsByCode[code]) {
+          rangeSlot.innerHTML = rangeHTML(itemsByCode[code], map[code]);
+        }
+      });
+    });
   }
 
   /* ---- 色階條：分數落在哪一段一眼看得出來 ---------------------------- */
@@ -717,6 +758,16 @@
 
     $("#stk").addEventListener("input", function () { state.stock = $("#stk").value.trim(); });
 
+    // 名單上的標的抓一次報價
+    (function () {
+      var S = window.SCREEN || {};
+      var sc = (S.screens || {})[state.result.path.id];
+      var items = (sc && sc.items) || [];
+      var byCode = {};
+      items.forEach(function (r) { byCode[r.code] = r; });
+      hydrateQuotes(items.map(function (r) { return r.code; }), byCode);
+    })();
+
     $$("[data-code]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         var v = btn.getAttribute("data-code") + " " + btn.getAttribute("data-name");
@@ -774,10 +825,12 @@
               'data-name="' + esc(r.name) + '">' +
               '<span class="wl-code tnum">' + esc(r.code) + "</span>" +
               '<span class="wl-name">' + esc(r.name) + "</span>" +
-              '<span class="wl-nums tnum">' +
-                (r["yield"] != null ? "殖利率 " + r["yield"].toFixed(2) + "%　" : "") +
-                (r.pe != null ? "本益比 " + r.pe.toFixed(1) : "") +
-              "</span></button>";
+              '<span class="wl-nums tnum" data-q-slot="' + esc(r.code) + '">' +
+                (Q.enabled() ? "…" :
+                  (r["yield"] != null ? "殖利率 " + r["yield"].toFixed(2) + "%　" : "") +
+                  (r.pe != null ? "本益比 " + r.pe.toFixed(1) : "")) +
+              "</span></button>" +
+              '<div data-q-range="' + esc(r.code) + '"></div>';
           }).join("") + "</div>"
         : '<p class="fine" style="margin-top:12px">這次篩選沒有標的通過條件。' +
           "條件寫死在 scripts/fetch_screen.py，可以自己調。</p>") +
@@ -789,6 +842,12 @@
 
       '<p class="fine" style="margin-top:14px">資料來源：' +
         esc((meta.sources || []).join("、") || "證交所／櫃買中心 OpenAPI") + "</p>" +
+      (Q.enabled()
+        ? '<p class="fine">報價經由你自己部署的代理取得證交所盤中資訊，' +
+          "有數秒到十幾秒落差，<b>不是逐筆即時成交價</b>。" +
+          (Q.marketOpen() ? "" : "現在非交易時段，顯示的是最後一次收盤資訊。") + "</p>"
+        : '<p class="fine">想看盤中報價的話，把 Cloudflare Worker 部署起來，' +
+          "網址填進 assets/config.js 的 quoteProxy。做法寫在 worker/quote-proxy.js 開頭。</p>") +
     "</div>";
   }
 
@@ -898,6 +957,11 @@
           '<div class="field"><label for="r-stop">出場條件</label>' +
             '<input class="input" id="r-stop" type="text" maxlength="80" ' +
               'placeholder="價格跌破某個價位，或當初買的理由消失"></div>' +
+          '<div class="field"><label for="r-stopprice">停損價（選填）</label>' +
+            '<input class="input" id="r-stopprice" type="number" inputmode="decimal" ' +
+              'step="0.01" min="0" placeholder="例如 180">' +
+            '<p class="fine" style="margin-top:6px">填了數字，之後打開檢查表就會' +
+              "直接跟現價比對。定期定額可以留空。</p></div>" +
           '<div class="field"><label for="r-review">什麼時候回來檢查</label>' +
             '<input class="input" id="r-review" type="text" maxlength="60" ' +
               'value="' + esc(seed.review) + '"></div>' +
@@ -920,6 +984,8 @@
           amount: $("#r-amount").value.trim(),
           batches: $("#r-batches").value.trim(),
           stop: $("#r-stop").value.trim(),
+          stopPrice: $("#r-stopprice").value.trim() === ""
+            ? null : Number($("#r-stopprice").value),
           review: $("#r-review").value.trim()
         }
       });
@@ -969,7 +1035,9 @@
             '<ul class="week-list">' +
               '<li><b>最多投入</b>　' + esc(it.rules.amount || "（沒寫）") + "</li>" +
               '<li><b>分批計畫</b>　' + esc(it.rules.batches || "（沒寫）") + "</li>" +
-              '<li><b>出場條件</b>　' + esc(it.rules.stop || "（沒寫）") + "</li>" +
+              '<li><b>出場條件</b>　' + esc(it.rules.stop || "（沒寫）") +
+                (it.rules.stopPrice != null
+                  ? "　（停損價 " + it.rules.stopPrice + "）" : "") + "</li>" +
               '<li><b>回來檢查</b>　' + esc(it.rules.review || "（沒寫）") + "</li>" +
             "</ul>" +
 
@@ -982,6 +1050,9 @@
                     "<span>" + esc(c.head) + "</span></button>";
                 }).join("") + "</div>"
               : "") +
+
+            (it.rules.stopPrice != null && LIST.codeOf(it.stock)
+              ? '<div data-stop="' + esc(it.id) + '"></div>' : "") +
 
             '<div class="cl-foot">' +
               '<select class="cl-status" aria-label="狀態">' +
@@ -1048,6 +1119,33 @@
     });
 
     $("#home").addEventListener("click", function () { state.flow = "intro"; render(); });
+
+    // 有填停損價的，抓現價比對一次
+    var watch = items.filter(function (it) {
+      return it.rules.stopPrice != null && LIST.codeOf(it.stock);
+    });
+    if (Q.enabled() && watch.length) {
+      Q.fetch(watch.map(function (it) { return LIST.codeOf(it.stock); })).then(function (map) {
+        watch.forEach(function (it) {
+          var q = map[LIST.codeOf(it.stock)];
+          var slot = document.querySelector('[data-stop="' + it.id + '"]');
+          if (!slot || !q || q.price == null) return;
+
+          var stop = it.rules.stopPrice;
+          if (q.price <= stop) {
+            slot.innerHTML = '<div class="stop-hit">現價 ' + q.price.toFixed(2) +
+              "，已經跌破你設的停損價 " + stop + "。<br>" +
+              "當初寫下這條規則的時候你是冷靜的。要不要執行是你的決定，" +
+              "但如果決定不執行，把新的理由也寫下來。</div>";
+          } else {
+            var gap = ((q.price - stop) / q.price) * 100;
+            slot.innerHTML = '<div class="stop-ok">現價 ' + q.price.toFixed(2) +
+              "，距離停損價 " + stop + " 還有 " + gap.toFixed(1) + "%。" +
+              (q.basis !== "成交" ? "（" + esc(q.basis) + "）" : "") + "</div>";
+          }
+        });
+      });
+    }
   }
 
   /* 觀察名單怎麼自己篩——「推薦個股」的誠實版本 */

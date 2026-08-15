@@ -319,7 +319,9 @@ async function run(vp) {
                     items: [{ code: "0050", name: "元大台灣50", pe: null, yield: 3.2 },
                             { code: "00878", name: "國泰永續高股息", pe: null, yield: 5.6 }] },
         cashflow: { criteria: ["殖利率 ≥ 4%", "本益比 0～20"], manual: ["連續配息年數要自己查"],
-                    items: [{ code: "2884", name: "玉山金", pe: 12.3, yield: 5.4 }] },
+                    // high/low/histDays 是 Action 累積出來的收盤價區間
+                    items: [{ code: "2884", name: "玉山金", pe: 12.3, yield: 5.4,
+                              high: 32.5, low: 24.1, histDays: 250 }] },
         research: { criteria: ["本益比 0～25"], manual: ["三率趨勢要自己查"],
                     items: [{ code: "2330", name: "台積電", pe: 21.5, yield: 1.8 }] },
         riskFirst: { criteria: [], manual: ["先把部位大小定下來"], items: [] }
@@ -362,6 +364,73 @@ async function run(vp) {
   const filled = await page.locator("#stk").inputValue();
   ok(filled.length > 0, `點名單會帶入標的欄位（${filled}）`);
   ok((await rows.first().getAttribute("class")).includes("on"), "被點選的那列有選取樣式");
+
+  // ---- 盤中報價：預設關閉，設定之後要接得上 ----
+  ok(/想看盤中報價/.test(await page.locator(".card").nth(1).textContent()),
+     "沒設定代理時，名單上說明怎麼開啟報價");
+
+  // 假裝已經部署好 Worker，攔截請求回假資料
+  await page.route("**/fake-proxy**", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    headers: { "Access-Control-Allow-Origin": "*" },
+    body: JSON.stringify({
+      updated: "2026-08-15T05:30:00.000Z",
+      source: "臺灣證券交易所 MIS（盤中資訊，非逐筆即時）",
+      quotes: [
+        { code: "2884", name: "玉山金", price: 30.15, prevClose: 28.50,
+          open: 28.6, high: 30.2, low: 28.5, volume: 12345, time: "13:30:00" },
+        { code: "0050", name: "元大台灣50", price: 190.0, prevClose: 195.0,
+          open: 194, high: 195, low: 189, volume: 5000, time: "13:30:00" }
+      ]
+    })
+  }));
+  await page.addInitScript(() => {
+    window.__PATCH_CFG = true;
+  });
+  await page.goto(BASE, { waitUntil: "domcontentloaded" });
+  await page.evaluate(() => {
+    window.CONFIG.quoteProxy = "https://example.invalid/fake-proxy";
+    window.SCREEN = window.__FIXTURE_SCREEN;
+  });
+  await runFunnel(page);
+  await page.click("#next"); await page.waitForSelector(".week");
+  await page.click("#next"); await page.waitForSelector("#calc");
+
+  await page.waitForSelector(".q", { timeout: 8000 });
+  const qText = await page.locator(".q").first().textContent();
+  ok(/30\.15/.test(qText), `名單顯示現價（${qText.trim()}）`);
+  ok(/\+5\.79%/.test(qText), "算得出漲跌幅");
+  ok((await page.locator(".q-up").count()) > 0, "上漲用紅色（台股慣例，不是綠色）");
+  ok(/不是逐筆即時成交價/.test(await page.locator(".card").nth(1).textContent()),
+     "有標明是盤中資訊不是逐筆即時");
+  ok((await page.locator(".q-range-pin").count()) > 0, "有累積區間資料的標的畫出位置指示");
+  ok(/累積|近一年區間/.test(await page.locator(".q-range").first().textContent()),
+     "區間標明是累積幾天，不假裝一定是一年");
+
+  const overflow2 = await page.evaluate(() =>
+    document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+  ok(!overflow2, "接上報價之後仍然沒有橫向捲動");
+
+  // 停損價比對
+  for (const [qid, optId] of Object.entries(BEST)) {
+    await page.locator(`[data-q="${qid}"] [data-opt="${optId}"]`).click();
+  }
+  await page.locator(".wl-row").first().click();
+  await page.click("#calc");
+  await page.waitForSelector(".path-steps");
+  await page.click("#tolist");
+  await page.waitForSelector("#save");
+  await page.fill("#r-stopprice", "31.5");     // 高於現價 30.15 → 應該判定跌破
+  await page.click("#save");
+  await page.waitForSelector(".cl");
+  await page.waitForSelector(".stop-hit", { timeout: 8000 });
+  const hit = await page.locator(".stop-hit").textContent();
+  ok(/已經跌破你設的停損價/.test(hit), "現價低於停損價時明確示警");
+  ok(/30\.15/.test(hit), "示警訊息帶上現價");
+
+  await page.locator(".cl-del").click();
+  await page.waitForTimeout(200);
 
   ok(errors.length === 0, "沒有 console 錯誤" + (errors.length ? "：" + errors.join(" | ") : ""));
 

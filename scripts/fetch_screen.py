@@ -13,6 +13,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 import sys
 
 from common import (DATA_DIR, get_json, log, now_taipei, session, to_float,
@@ -118,6 +120,45 @@ def is_etf(code: str) -> bool:
 
 MIN_VALUE = 20_000_000        # 日成交金額門檻，太冷門的買賣價差會吃掉報酬
 MAX_ITEMS = 12                # 每份清單最多幾檔
+HISTORY_DAYS = 250            # 約當一年的交易日數
+HISTORY_PATH = os.path.join(DATA_DIR, "history.json")
+
+
+# ---- 收盤價歷史：一天一筆慢慢累積，用來算「現在在一年區間的哪裡」 ----
+
+def load_history() -> dict:
+    try:
+        with open(HISTORY_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def update_history(hist: dict, rows: dict, date: str, codes) -> dict:
+    """把今天的收盤價併進歷史。同一天重跑不會重複寫入，超過上限就丟掉最舊的。
+
+    只留觀察名單會用到的代號——全市場一千九百檔乘以兩百五十天太肥，
+    而且用不到。"""
+    keep = set(codes)
+    out = {}
+    for code in keep:
+        series = list(hist.get(code, []))
+        close = (rows.get(code) or {}).get("close")
+        if close is not None:
+            series = [p for p in series if p and p[0] != date]
+            series.append([date, close])
+            series.sort(key=lambda p: p[0])
+        out[code] = series[-HISTORY_DAYS:]
+    return out
+
+
+def range_stats(series) -> dict:
+    """從累積的收盤價算出區間高低。天數不足一年時要照實說，不要假裝是 52 週。"""
+    vals = [p[1] for p in (series or []) if p and p[1] is not None]
+    if not vals:
+        return {"high": None, "low": None, "days": 0}
+    return {"high": max(vals), "low": min(vals), "days": len(vals)}
 
 
 def build_screens(rows: dict) -> dict:
@@ -232,6 +273,26 @@ def main() -> int:
     log(f"合併後共 {len(rows):,} 檔")
 
     screens = build_screens(rows)
+
+    # 把觀察名單裡的代號累積收盤價，算出區間高低
+    watch_codes = set()
+    for sc in screens.values():
+        for it in sc["items"]:
+            watch_codes.add(it["code"])
+
+    today = now_taipei().strftime("%Y-%m-%d")
+    hist = update_history(load_history(), rows, today, watch_codes)
+    with open(HISTORY_PATH, "w", encoding="utf-8") as f:
+        json.dump(hist, f, ensure_ascii=False, separators=(",", ":"))
+    log(f"收盤價歷史：{len(hist)} 檔")
+
+    for sc in screens.values():
+        for it in sc["items"]:
+            st = range_stats(hist.get(it["code"]))
+            it["high"] = st["high"]
+            it["low"] = st["low"]
+            it["histDays"] = st["days"]
+
     for path, sc in screens.items():
         log(f"  {path}：{len(sc['items'])} 檔")
 
@@ -241,6 +302,7 @@ def main() -> int:
             "sources": [u for u in (u1, u2, u3, u4) if u],
             "total": len(rows),
             "note": "本清單為公開資料的篩選結果，不是推薦名單。",
+            "historyDays": HISTORY_DAYS,
         },
         "screens": screens,
     })

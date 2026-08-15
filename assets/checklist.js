@@ -52,7 +52,10 @@
         amount: opts.rules && opts.rules.amount || "",
         batches: opts.rules && opts.rules.batches || "",
         stop: opts.rules && opts.rules.stop || "",
-        review: opts.rules && opts.rules.review || ""
+        review: opts.rules && opts.rules.review || "",
+        // 選填的數字。有填才比得了現價，沒填就只有文字規則。
+        stopPrice: opts.rules && opts.rules.stopPrice != null
+          ? opts.rules.stopPrice : null
       },
       checks: (opts.steps || []).map(function (st) {
         return { head: st.head, done: false };
@@ -104,6 +107,9 @@
       L.push("- 這筆最多投入：" + (it.rules.amount || "（沒寫）"));
       L.push("- 分批計畫：" + (it.rules.batches || "（沒寫）"));
       L.push("- 出場條件：" + (it.rules.stop || "（沒寫）"));
+      if (it.rules.stopPrice != null) {
+        L.push("- 停損價：" + it.rules.stopPrice);
+      }
       L.push("- 什麼時候回來檢查：" + (it.rules.review || "（沒寫）"));
       L.push("");
       if (it.checks && it.checks.length) {
@@ -121,7 +127,15 @@
     return L.join("\n");
   }
 
+  /* 從「0050 元大台灣50」這種字串取出代號，取不到就回 null。
+     使用者可能只打了名字，那就沒得比對報價。 */
+  function codeOf(stock) {
+    var m = /(^|\s)(\d{4,6})(\s|$)/.exec(String(stock || ""));
+    return m ? m[2] : null;
+  }
+
   global.CHECKLIST = {
+    codeOf: codeOf,
     KEY: KEY, MAX: MAX, STATUS: STATUS,
     all: read, add: add, update: update, remove: remove, clear: clear,
     makeItem: makeItem, toMarkdown: toMarkdown

@@ -33,11 +33,16 @@
 │   ├── plan-builder.js        # 把教材攤成週次表 + 匯出 Markdown
 │   ├── decision.js            # 「該不該買」決策引擎與篩選條件
 │   ├── checklist.js           # 進場檢查表（localStorage 保存與匯出）
+│   ├── quote.js               # 盤中報價（透過自建代理）
+│   └── config.js              # ✍️ 手動：報價代理網址與更新頻率
 │   └── analytics.js           # 事件追蹤抽象層
 ├── docs/
 │   └── prompt.md              # 產生這個專案的主提示詞（三份整合後的版本）
 ├── data/
-│   └── screen.js              # 🤖 自動產生：觀察名單（Action 每個交易日覆寫）
+│   ├── screen.js              # 🤖 自動產生：觀察名單（Action 每個交易日覆寫）
+│   └── history.json           # 🤖 自動累積：觀察名單標的的收盤價（算區間高低用）
+├── worker/
+│   └── quote-proxy.js         # Cloudflare Worker：證交所盤中報價代理
 ├── .github/workflows/
 │   └── update-screen.yml      # 每交易日收盤後抓證交所公開資料
 └── scripts/
@@ -170,6 +175,34 @@
    （所以改成每個交易日重抓，而不是寫死。）
 2. 在台灣，對不特定人推薦個股買賣屬於**證券投資顧問業務**，須經金管會核准。
    篩選器和推薦不同：條件公開、資料來源公開、結論由使用者自己跑出來。
+
+---
+
+## 📈 盤中報價（選用）
+
+純前端拿不到證交所的盤中報價：`mis.twse.com.tw` 不回 `Access-Control-Allow-Origin`，
+瀏覽器直接擋掉。所以要有一層自己的代理。
+
+`worker/quote-proxy.js` 是一支 Cloudflare Worker，做的事只有兩件：轉發請求、加上 CORS 標頭。
+免費方案綽綽有餘。
+
+```
+1. dash.cloudflare.com → Workers & Pages → Create → Worker
+2. 把 worker/quote-proxy.js 整個貼進去，Deploy
+3. 複製網址填進 assets/config.js 的 quoteProxy
+```
+
+沒填就整支停用，網站其他功能照常運作，名單上會顯示怎麼開啟。
+
+接上之後多出三件事：
+
+- **觀察名單顯示現價與漲跌**（紅漲綠跌，台股慣例）
+- **區間位置**：`data/history.json` 每天累積一筆收盤價，算出現價落在區間的哪裡。
+  天數不足一年時會照實寫「累積 N 個交易日的區間」，不假裝是 52 週
+- **停損價比對**：檢查表填了停損價，打開就直接跟現價比，跌破會明確示警
+
+> 這是**盤中資訊不是逐筆即時**，有數秒到十幾秒落差，畫面上有標明。
+> 證交所該端點的條款限個人非商業使用，預設 15 秒重抓一次，別調到個位數。
 
 ---
 

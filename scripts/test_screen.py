@@ -12,7 +12,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from fetch_screen import build_screens, is_etf, merge, normalise  # noqa: E402
+from fetch_screen import (build_screens, is_etf, merge, normalise,  # noqa: E402
+                          range_stats, update_history)
 
 failed = 0
 
@@ -105,6 +106,32 @@ for path, s in sc.items():
 
 print("\n=== 名單長度上限 ===")
 ok(all(len(s["items"]) <= 12 for s in sc.values()), "每份清單最多 12 檔")
+
+print("\n=== 收盤價歷史 ===")
+h0 = update_history({}, rows, "2026-08-15", ["2330", "0050"])
+ok(set(h0) == {"2330", "0050"}, "只累積指定的代號")
+ok(h0["2330"] == [["2026-08-15", 1050.0]], "第一天寫入一筆")
+
+h1 = update_history(h0, rows, "2026-08-16", ["2330", "0050"])
+ok(len(h1["2330"]) == 2, "第二天再加一筆")
+
+h2 = update_history(h1, rows, "2026-08-16", ["2330", "0050"])
+ok(len(h2["2330"]) == 2, "同一天重跑不會寫成兩筆")
+
+# 超過上限要丟掉最舊的
+big = {"2330": [[f"2020-{(i % 12) + 1:02d}-{(i % 28) + 1:02d}", 100.0 + i] for i in range(300)]}
+h3 = update_history(big, rows, "2026-08-17", ["2330"])
+ok(len(h3["2330"]) == 250, f"超過 250 筆會丟掉最舊的（實際 {len(h3['2330'])}）")
+
+# 名單以外的代號要被丟掉，不然檔案會無限長大
+h4 = update_history({"9999": [["2020-01-01", 5.0]]}, rows, "2026-08-17", ["2330"])
+ok("9999" not in h4, "不在名單裡的代號會被清掉")
+
+st = range_stats([["2026-01-01", 100.0], ["2026-02-01", 130.0], ["2026-03-01", 90.0]])
+ok(st["high"] == 130.0 and st["low"] == 90.0, "算得出區間高低")
+ok(st["days"] == 3, "回報實際累積了幾天，不假裝是一年")
+ok(range_stats([])["days"] == 0, "沒有資料時回 0 天而不是炸掉")
+ok(range_stats(None)["high"] is None, "None 也不會炸")
 
 print(f"\n✗ {failed} 項沒過\n" if failed else "\n全部通過\n")
 sys.exit(1 if failed else 0)
