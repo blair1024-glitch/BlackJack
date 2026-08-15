@@ -6,6 +6,7 @@
 
   var QUIZ = window.QUIZ, SCORING = window.SCORING, CHART = window.CHART;
   var BUILDER = window.PLAN_BUILDER, DECIDE = window.DECISION;
+  var LIST = window.CHECKLIST;
   var T = window.ANALYTICS, N = T.NAMES;
 
   var app = document.getElementById("app");
@@ -66,7 +67,8 @@
   /* ---- 狀態 ------------------------------------------------------------ */
   var state = {
     flow: "intro",          // intro | steps | naming | analyzing | plan | planDetail
-                            //   | decide | decideResult | email | pricing | done
+                            //   | decide | decideResult | ruleForm | checklist
+                            //   | email | pricing | done
     stepIndex: 0,
     answers: {},
     result: null,
@@ -101,7 +103,8 @@
   function syncBack() {
     var canBack = (state.flow === "steps" && state.stepIndex > 0) ||
                   state.flow === "planDetail" || state.flow === "decide" ||
-                  state.flow === "decideResult" || state.flow === "email" ||
+                  state.flow === "decideResult" || state.flow === "ruleForm" ||
+                  state.flow === "checklist" || state.flow === "email" ||
                   state.flow === "pricing";
     backBtn.hidden = !canBack;
   }
@@ -111,6 +114,8 @@
     if (state.flow === "planDetail") { state.flow = "plan"; render(); return; }
     if (state.flow === "decide") { state.flow = "planDetail"; render(); return; }
     if (state.flow === "decideResult") { state.flow = "decide"; render(); return; }
+    if (state.flow === "ruleForm") { state.flow = "decideResult"; render(); return; }
+    if (state.flow === "checklist") { state.flow = state.result ? "decideResult" : "intro"; render(); return; }
     if (state.flow === "email") { state.flow = "decideResult"; render(); return; }
     if (state.flow === "pricing") { state.flow = "email"; render(); return; }
   }
@@ -198,9 +203,14 @@
             "約 " + QUIZ.meta.estMinutes + " 分鐘 · 免費 · 隨時可以回上一題改答案</p>" +
         "</div>" +
 
+        savedEntryHTML() +
+
         '<p class="fine">本測驗為教育用途，結果是學習路徑建議，不構成投資建議。</p>' +
       "</div>"
     );
+
+    var saved = $("#saved");
+    if (saved) saved.addEventListener("click", function () { state.flow = "checklist"; render(); });
 
     $("#start").addEventListener("click", function () {
       state.flow = "steps";
@@ -208,6 +218,18 @@
       T.track(N.quizStarted, { total: TOTAL });
       render();
     });
+  }
+
+  /* 之前存過檢查表的話，開場就給一個回去的入口——規則放著不看等於沒寫 */
+  function savedEntryHTML() {
+    var items = LIST.all();
+    if (!items.length) return "";
+    var open = items.filter(function (it) { return it.status === "planning" || it.status === "entered"; });
+    return '<button class="card saved-entry" type="button" id="saved">' +
+      '<div><b>你有 ' + items.length + " 張進場檢查表</b>" +
+      (open.length ? "　" + open.length + " 張還在進行中" : "") + "</div>" +
+      '<div class="fine" style="margin-top:4px">看你上次寫下的規則 →</div>' +
+    "</button>";
   }
 
   /* ---- 選項卡 ---------------------------------------------------------- */
@@ -824,8 +846,12 @@
         "</div>" +
 
         '<div class="sticky-foot">' +
-          '<button class="btn" id="next">把計畫和這份判斷寄給我</button>' +
-          '<button class="btn btn-ghost" id="redo" style="margin-top:10px">改答案，重算一次</button></div>' +
+          (d.verdict.id === "stop"
+            ? '<button class="btn" id="redo">改答案，重算一次</button>'
+            : '<button class="btn" id="tolist">把這些規則存成檢查表</button>' +
+              '<button class="btn btn-ghost" id="redo" style="margin-top:10px">改答案，重算一次</button>') +
+          '<button class="btn btn-ghost" id="next" style="margin-top:10px">' +
+            "把計畫和判斷寄給我</button></div>" +
       "</div>"
     );
 
@@ -836,6 +862,192 @@
 
     $("#redo").addEventListener("click", function () { state.flow = "decide"; render(); });
     $("#next").addEventListener("click", function () { state.flow = "email"; render(); });
+    var tolist = $("#tolist");
+    if (tolist) tolist.addEventListener("click", function () { state.flow = "ruleForm"; render(); });
+  }
+
+  /* ---- 寫下規則 -------------------------------------------------------- */
+  function renderRuleForm() {
+    var d = state.decision;
+    var label = state.stock || "這一檔";
+
+    // 先用決策結果填建議值，使用者改過的才是他自己的規則
+    var seed = {
+      amount: d.verdict.id === "small" ? "原本打算的一半" : "",
+      batches: "分三批，第一批先進" + (d.verdict.id === "small" ? "三分之一" : ""),
+      stop: "",
+      review: "下一次財報或月營收公布時"
+    };
+
+    paint(
+      '<div class="stack-lg">' +
+        "<div>" +
+          '<p class="eyebrow">' + esc(label) + "</p>" +
+          '<h2 class="h1" data-focus tabindex="-1">把規則寫下來</h2>' +
+          '<p class="lede">寫下來的規則，才擋得住當下的情緒。四欄都可以留空，' +
+            "但留空的那欄，之後就沒有東西可以擋你。</p>" +
+        "</div>" +
+
+        '<div class="card">' +
+          '<div class="field"><label for="r-amount">這筆最多投入多少</label>' +
+            '<input class="input" id="r-amount" type="text" maxlength="60" ' +
+              'placeholder="例如 NT$30,000，或「不超過總投資的一成」"></div>' +
+          '<div class="field"><label for="r-batches">分批計畫</label>' +
+            '<input class="input" id="r-batches" type="text" maxlength="80" ' +
+              'placeholder="' + esc(seed.batches) + '" value="' + esc(seed.batches) + '"></div>' +
+          '<div class="field"><label for="r-stop">出場條件</label>' +
+            '<input class="input" id="r-stop" type="text" maxlength="80" ' +
+              'placeholder="價格跌破某個價位，或當初買的理由消失"></div>' +
+          '<div class="field"><label for="r-review">什麼時候回來檢查</label>' +
+            '<input class="input" id="r-review" type="text" maxlength="60" ' +
+              'value="' + esc(seed.review) + '"></div>' +
+        "</div>" +
+
+        '<div class="notice">這些規則只存在<b>這台裝置的瀏覽器</b>裡，' +
+          "沒有帳號、沒有後端、不會同步。清掉瀏覽器資料就會不見——所以記得匯出一份。</div>" +
+
+        '<div class="sticky-foot"><button class="btn" id="save">存起來</button></div>' +
+      "</div>"
+    );
+
+    $("#save").addEventListener("click", function () {
+      var item = LIST.makeItem({
+        stock: state.stock,
+        pathId: state.result.path.id,
+        decision: d,
+        steps: d.steps,
+        rules: {
+          amount: $("#r-amount").value.trim(),
+          batches: $("#r-batches").value.trim(),
+          stop: $("#r-stop").value.trim(),
+          review: $("#r-review").value.trim()
+        }
+      });
+      LIST.add(item);
+      T.track(N.checklistSaved, { verdict: d.verdict.id });
+      state.flow = "checklist";
+      render();
+    });
+  }
+
+  /* ---- 檢查表清單 ------------------------------------------------------ */
+  function renderChecklist() {
+    var items = LIST.all();
+
+    if (!items.length) {
+      paint(
+        '<div class="stack-lg">' +
+          '<h2 class="h1" data-focus tabindex="-1">還沒有檢查表</h2>' +
+          '<p class="lede">跑完「該不該買」之後，可以把規則存成一張檢查表，下次打開還在。</p>' +
+          '<button class="btn btn-ghost" id="home">回首頁</button>' +
+        "</div>"
+      );
+      $("#home").addEventListener("click", function () { state.flow = "intro"; render(); });
+      return;
+    }
+
+    paint(
+      '<div class="stack-lg">' +
+        "<div>" +
+          '<p class="eyebrow">存在這台裝置上</p>' +
+          '<h2 class="h1" data-focus tabindex="-1">我的進場檢查表</h2>' +
+          '<p class="lede">規則是在冷靜的時候訂的。要改可以，但在沒有部位壓力的時候改，' +
+            "不要在虧損的當下改。</p>" +
+        "</div>" +
+
+        items.map(function (it) {
+          var st = LIST.STATUS[it.status] || LIST.STATUS.planning;
+          return '<div class="card cl" data-id="' + esc(it.id) + '">' +
+            '<div class="cl-head">' +
+              "<div><b>" + esc(it.stock) + "</b>" +
+              '<div class="fine">' + esc(it.createdAt) +
+                (it.verdictLabel ? "　·　" + esc(it.verdictLabel) : "") + "</div></div>" +
+              '<span class="badge badge-' + st.tone + '">' + esc(st.label) + "</span>" +
+            "</div>" +
+
+            '<p class="week-label">我寫下的規則</p>' +
+            '<ul class="week-list">' +
+              '<li><b>最多投入</b>　' + esc(it.rules.amount || "（沒寫）") + "</li>" +
+              '<li><b>分批計畫</b>　' + esc(it.rules.batches || "（沒寫）") + "</li>" +
+              '<li><b>出場條件</b>　' + esc(it.rules.stop || "（沒寫）") + "</li>" +
+              '<li><b>回來檢查</b>　' + esc(it.rules.review || "（沒寫）") + "</li>" +
+            "</ul>" +
+
+            (it.checks && it.checks.length
+              ? '<p class="week-label">執行進度</p><div class="cl-checks">' +
+                it.checks.map(function (c, i) {
+                  return '<button class="cl-check" type="button" role="checkbox" aria-checked="' +
+                    (c.done ? "true" : "false") + '" data-check="' + i + '">' +
+                    '<span class="option-check" aria-hidden="true">✓</span>' +
+                    "<span>" + esc(c.head) + "</span></button>";
+                }).join("") + "</div>"
+              : "") +
+
+            '<div class="cl-foot">' +
+              '<select class="cl-status" aria-label="狀態">' +
+                Object.keys(LIST.STATUS).map(function (k) {
+                  return '<option value="' + k + '"' + (k === it.status ? " selected" : "") +
+                    ">" + esc(LIST.STATUS[k].label) + "</option>";
+                }).join("") +
+              "</select>" +
+              '<button class="cl-del" type="button">刪掉這張</button>' +
+            "</div>" +
+          "</div>";
+        }).join("") +
+
+        '<div class="card">' +
+          '<h3 class="h2">帶走一份</h3>' +
+          '<p class="fine">清掉瀏覽器資料這些就沒了。匯出一份 Markdown 放在筆記軟體裡比較保險。</p>' +
+          '<button class="btn btn-ghost" id="dl3" style="margin-top:14px">下載檢查表</button>' +
+        "</div>" +
+
+        '<div class="sticky-foot"><button class="btn btn-ghost" id="home">回首頁</button></div>' +
+      "</div>"
+    );
+
+    $$(".cl").forEach(function (card) {
+      var id = card.getAttribute("data-id");
+
+      Array.prototype.forEach.call(card.querySelectorAll("[data-check]"), function (btn) {
+        btn.addEventListener("click", function () {
+          var idx = Number(btn.getAttribute("data-check"));
+          var cur = LIST.all().filter(function (x) { return x.id === id; })[0];
+          if (!cur) return;
+          cur.checks[idx].done = !cur.checks[idx].done;
+          LIST.update(id, { checks: cur.checks });
+          btn.setAttribute("aria-checked", cur.checks[idx].done ? "true" : "false");
+        });
+      });
+
+      card.querySelector(".cl-status").addEventListener("change", function (e) {
+        LIST.update(id, { status: e.target.value });
+        render();
+      });
+
+      card.querySelector(".cl-del").addEventListener("click", function () {
+        LIST.remove(id);
+        T.track(N.checklistRemoved, {});
+        render();
+      });
+    });
+
+    $("#dl3").addEventListener("click", function () {
+      var md = LIST.toMarkdown(LIST.all());
+      var blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = "tw-stock-checklist.md";
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function () {
+        if (a.parentNode) a.parentNode.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 1000);
+      T.track(N.checklistDownloaded, { count: LIST.all().length });
+    });
+
+    $("#home").addEventListener("click", function () { state.flow = "intro"; render(); });
   }
 
   /* 觀察名單怎麼自己篩——「推薦個股」的誠實版本 */
@@ -1067,6 +1279,8 @@
     if (state.flow === "naming") return renderNaming();
     if (state.flow === "decide") return renderDecide();
     if (state.flow === "decideResult") return renderDecideResult();
+    if (state.flow === "ruleForm") return renderRuleForm();
+    if (state.flow === "checklist") return renderChecklist();
     if (state.flow === "email") return renderEmail();
     if (state.flow === "pricing") return renderPricing();
     if (state.flow === "done") return renderDone();

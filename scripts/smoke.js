@@ -10,6 +10,30 @@ const VIEWPORTS = [
   { name: "桌機", width: 1440, height: 900 }
 ];
 
+// 最好的那組決策答案。不能用「最後一個選項」——第 5 題最後一項是「超過 30%」，那是硬紅旗。
+const BEST = {
+  motive: "etf", understand: "deep", trend: "up", position: "low",
+  weight: "w5", horizon: "y5", drop: "review", exit: "rule"
+};
+
+// 從開場一路答到結果屏，供需要重跑漏斗的段落共用
+async function runFunnel(page) {
+  await page.click("#start");
+  for (let i = 0; i < 40; i++) {
+    if (await page.locator(".path-steps").count()) break;
+    if (await page.locator("#nm").count()) await page.click("#skip");
+    else if (await page.locator("#sr").count()) { await page.locator("#sr").fill("5"); await page.click("#next"); }
+    else if (await page.locator(".option").count()) {
+      const multi = (await page.locator(".option").first().getAttribute("role")) === "checkbox";
+      if (multi) { await page.locator(".option").nth(0).click(); await page.click("#next"); }
+      else { await page.locator(".option").nth(1).click(); await page.waitForTimeout(400); }
+    } else if (await page.locator(".interstitial").count()) await page.click("#next");
+    else await page.waitForTimeout(180);
+    await page.waitForTimeout(50);
+  }
+  await page.waitForSelector(".path-steps");
+}
+
 let failed = 0;
 function ok(cond, msg) {
   console.log((cond ? "  ✓ " : "  ✗ ") + msg);
@@ -146,10 +170,6 @@ async function run(vp) {
   // 注意：不能用「最後一個選項」當成最好的——第 5 題最後一項是「超過 30%」，那是硬紅旗。
   await page.click("#redo");
   await page.waitForSelector("#calc");
-  const BEST = {
-    motive: "etf", understand: "deep", trend: "up", position: "low",
-    weight: "w5", horizon: "y5", drop: "review", exit: "rule"
-  };
   for (const [qid, optId] of Object.entries(BEST)) {
     await page.locator(`[data-q="${qid}"] [data-opt="${optId}"]`).click();
   }
@@ -172,6 +192,64 @@ async function run(vp) {
   ok(md2.includes("小陳的"), "檔案標題用了使用者的稱呼");
   ok(md2.length > md.length, `含判斷的檔案比純計畫長（${md.length} → ${md2.length}）`);
 
+  // ---- 進場檢查表：規則要存得住 ----
+  await page.click("#tolist");
+  await page.waitForSelector("#save");
+  await page.fill("#r-amount", "NT$30,000");
+  await page.fill("#r-stop", "跌破 180 或當初的理由消失");
+  ok(/只存在.*這台裝置的瀏覽器/.test(await page.locator(".notice").last().textContent()),
+     "有講清楚規則只存在本機瀏覽器");
+  await page.click("#save");
+
+  await page.waitForSelector(".cl");
+  ok((await page.locator(".cl").count()) === 1, "存好一張檢查表");
+  const clText = await page.locator(".cl").first().textContent();
+  ok(/NT\$30,000/.test(clText), "檢查表記住了投入上限");
+  ok(/跌破 180/.test(clText), "檢查表記住了出場條件");
+  ok(/0050/.test(clText), "檢查表記住了標的");
+
+  // 勾一個項目，重整之後要還在
+  const firstCheck = page.locator(".cl-check").first();
+  await firstCheck.click();
+  ok((await firstCheck.getAttribute("aria-checked")) === "true", "可以勾選執行進度");
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  ok(await page.locator("#saved").isVisible(), "重整後首頁出現檢查表入口");
+  await page.click("#saved");
+  await page.waitForSelector(".cl");
+  ok((await page.locator(".cl-check").first().getAttribute("aria-checked")) === "true",
+     "勾選狀態撐過重新整理");
+  ok(/NT\$30,000/.test(await page.locator(".cl").first().textContent()),
+     "規則撐過重新整理");
+
+  // 下載
+  const dl3 = await Promise.all([page.waitForEvent("download"), page.click("#dl3")]);
+  const st3 = await dl3[0].createReadStream();
+  let md3 = "";
+  for await (const c of st3) md3 += c;
+  ok(md3.includes("我的進場檢查表"), "檢查表匯出得了");
+  ok(md3.includes("NT$30,000"), "匯出的檔案含規則");
+  ok(md3.includes("- [x] "), "匯出的檔案帶著勾選狀態");
+
+  // 改狀態、刪除
+  await page.selectOption(".cl-status", "entered");
+  await page.waitForSelector(".badge-ok");
+  ok(await page.locator(".badge-ok").first().isVisible(), "狀態改得動");
+  await page.click(".cl-del");
+  await page.waitForTimeout(200);
+  ok((await page.locator(".cl").count()) === 0, "刪得掉");
+
+  // 回到裁決頁繼續原本的流程
+  await page.goto(BASE, { waitUntil: "domcontentloaded" });
+  ok((await page.locator("#saved").count()) === 0, "全部刪掉之後首頁不再顯示入口");
+  await runFunnel(page);
+  await page.click("#next"); await page.waitForSelector(".week");
+  await page.click("#next"); await page.waitForSelector("#calc");
+  for (const [qid, optId] of Object.entries(BEST)) {
+    await page.locator(`[data-q="${qid}"] [data-opt="${optId}"]`).click();
+  }
+  await page.click("#calc");
+  await page.waitForSelector(".path-steps");
   await page.click("#next");
 
   // ---- Email 驗證 ----

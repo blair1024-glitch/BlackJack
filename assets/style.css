@@ -290,6 +290,7 @@ input[type="range"] {
   display: inline-block; padding: 5px 12px; border-radius: 999px;
   background: var(--brand-soft); color: var(--brand);
   font-size: 13px; font-weight: 700;
+  white-space: nowrap;   /* 「還沒進場」這種四字標籤不該被擠成兩行 */
 }
 .badge-soft { background: var(--bg-sunken); color: var(--text-muted); }
 
@@ -501,3 +502,50 @@ input[type="range"] {
 .wl-code { font-weight: 700; color: var(--brand); flex: none; }
 .wl-name { flex: 1; min-width: 0; }
 .wl-nums { font-size: 12.5px; color: var(--text-muted); flex: none; }
+
+/* ---- 進場檢查表 ---- */
+.saved-entry {
+  display: block; width: 100%; text-align: left; cursor: pointer;
+  border: 1.5px solid var(--brand); background: var(--brand-soft);
+  border-radius: var(--radius); padding: 15px;
+  transition: background var(--dur) ease;
+}
+.saved-entry:hover { background: color-mix(in srgb, var(--brand) 16%, transparent); }
+
+.cl-head {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border);
+}
+.badge-ok    { background: var(--ok-soft); color: var(--ok); }
+.badge-warn  { background: rgba(180,117,0,.13); color: var(--warn); }
+.badge-muted { background: var(--bg-sunken); color: var(--text-muted); }
+
+.cl-checks { margin-top: 8px; display: grid; gap: 8px; }
+.cl-check {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  min-height: 44px; padding: 9px 11px; text-align: left;
+  background: var(--bg-sunken); color: var(--text);
+  border: 0; border-radius: var(--radius-sm); cursor: pointer;
+  font-size: 14px; line-height: 1.5;
+}
+.cl-check .option-check { width: 20px; height: 20px; font-size: 12px; }
+.cl-check[aria-checked="true"] { color: var(--text-muted); }
+.cl-check[aria-checked="true"] .option-check {
+  background: var(--ok); border-color: var(--ok); color: var(--bg-elev);
+}
+
+.cl-foot {
+  display: flex; gap: 10px; align-items: center;
+  margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border);
+}
+.cl-status {
+  flex: 1; min-height: 40px; padding: 8px 10px;
+  background: var(--bg-elev); color: var(--text);
+  border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+}
+.cl-del {
+  min-height: 40px; padding: 8px 14px; background: none;
+  border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+  color: var(--text-muted); font-size: 14px; cursor: pointer;
+}
+.cl-del:hover { border-color: var(--up); color: var(--up); }
