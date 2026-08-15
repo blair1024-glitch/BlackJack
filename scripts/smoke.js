@@ -123,6 +123,10 @@ async function run(vp) {
   ok(/不推薦任何個股/.test(await page.locator(".notice").first().textContent()),
      "明講這個工具不推薦個股");
 
+  // 資料還沒抓的時候，要老實說，不能生一份假名單
+  ok(/資料還沒抓/.test(await page.locator(".card").nth(1).textContent()),
+     "觀察名單沒有資料時顯示誠實的空狀態");
+
   await page.fill("#stk", "0050");
   const boxes = page.locator("[data-q]");
   const qn = await boxes.count();
@@ -226,6 +230,60 @@ async function run(vp) {
   const overflow = await page.evaluate(() =>
     document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
   ok(!overflow, "沒有橫向捲動");
+
+  // ---- 觀察名單有資料時的樣子（注入假資料，不動 repo 裡的檔案）----
+  await page.addInitScript(() => {
+    window.__FIXTURE_SCREEN = {
+      meta: { updated: "2026-08-15 15:30", sources: ["https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL"], total: 1234,
+              note: "本清單為公開資料的篩選結果，不是推薦名單。" },
+      screens: {
+        etfStart: { criteria: ["ETF（代號 00 開頭）", "日成交金額門檻"], manual: ["內扣費用要去投信官網查"],
+                    items: [{ code: "0050", name: "元大台灣50", pe: null, yield: 3.2 },
+                            { code: "00878", name: "國泰永續高股息", pe: null, yield: 5.6 }] },
+        cashflow: { criteria: ["殖利率 ≥ 4%", "本益比 0～20"], manual: ["連續配息年數要自己查"],
+                    items: [{ code: "2884", name: "玉山金", pe: 12.3, yield: 5.4 }] },
+        research: { criteria: ["本益比 0～25"], manual: ["三率趨勢要自己查"],
+                    items: [{ code: "2330", name: "台積電", pe: 21.5, yield: 1.8 }] },
+        riskFirst: { criteria: [], manual: ["先把部位大小定下來"], items: [] }
+      }
+    };
+  });
+  await page.goto(BASE, { waitUntil: "domcontentloaded" });
+  await page.evaluate(() => { window.SCREEN = window.__FIXTURE_SCREEN; });
+
+  // 快速走到決策工具
+  await page.click("#start");
+  for (let i = 0; i < 40; i++) {
+    if (await page.locator(".path-steps").count()) break;
+    if (await page.locator("#nm").count()) await page.click("#skip");
+    else if (await page.locator("#sr").count()) { await page.locator("#sr").fill("5"); await page.click("#next"); }
+    else if (await page.locator(".option").count()) {
+      const multi = (await page.locator(".option").first().getAttribute("role")) === "checkbox";
+      if (multi) { await page.locator(".option").nth(0).click(); await page.click("#next"); }
+      else { await page.locator(".option").nth(1).click(); await page.waitForTimeout(400); }
+    } else if (await page.locator(".interstitial").count()) await page.click("#next");
+    else await page.waitForTimeout(180);
+    await page.waitForTimeout(50);
+  }
+  await page.waitForSelector(".path-steps");
+  await page.click("#next"); await page.waitForSelector(".week");
+  await page.click("#next"); await page.waitForSelector("#calc");
+
+  const rows = page.locator(".wl-row");
+  const rowCount = await rows.count();
+  ok(rowCount > 0, `觀察名單有資料時列出標的（${rowCount} 檔）`);
+  ok(/資料日期 2026-08-15/.test(await page.locator(".eyebrow").nth(1).textContent()),
+     "名單標出資料日期");
+  const wlText = await page.locator(".card").nth(1).textContent();
+  ok(/這是篩選結果，不是推薦/.test(wlText), "名單明白標示不是推薦");
+  ok(/篩選條件/.test(wlText), "名單列出篩選條件");
+  ok(/API 查不到/.test(wlText), "名單列出 API 查不到、要自己查的項目");
+  ok(/openapi\.twse\.com\.tw/.test(wlText), "名單標出資料來源");
+
+  await rows.first().click();
+  const filled = await page.locator("#stk").inputValue();
+  ok(filled.length > 0, `點名單會帶入標的欄位（${filled}）`);
+  ok((await rows.first().getAttribute("class")).includes("on"), "被點選的那列有選取樣式");
 
   ok(errors.length === 0, "沒有 console 錯誤" + (errors.length ? "：" + errors.join(" | ") : ""));
 

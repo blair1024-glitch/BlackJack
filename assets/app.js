@@ -643,8 +643,11 @@
           '<div class="field"><label for="stk">你在考慮哪一檔？</label>' +
           '<input class="input" id="stk" type="text" maxlength="24" ' +
             'placeholder="例如 0050 或 台積電" value="' + esc(state.stock) + '">' +
-          '<p class="fine" style="margin-top:6px">只是拿來標記這次判斷，我們不會去查它。</p></div>' +
+          '<p class="fine" style="margin-top:6px">只是拿來標記這次判斷。' +
+            "下面的清單可以直接點選帶入。</p></div>" +
         "</div>" +
+
+        watchlistHTML() +
 
         qs.map(function (q, i) {
           var cur = state.decideAnswers[q.id];
@@ -692,12 +695,79 @@
 
     $("#stk").addEventListener("input", function () { state.stock = $("#stk").value.trim(); });
 
+    $$("[data-code]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var v = btn.getAttribute("data-code") + " " + btn.getAttribute("data-name");
+        state.stock = v;
+        $("#stk").value = v;
+        $$("[data-code]").forEach(function (b) { b.classList.toggle("on", b === btn); });
+        T.track(N.watchlistPicked, { code: btn.getAttribute("data-code") });
+      });
+    });
+
     calc.addEventListener("click", function () {
       state.decision = DECIDE.evaluate(state.decideAnswers, state.result);
       T.track(N.decideCompleted, { verdict: state.decision.verdict.id, score: state.decision.score });
       state.flow = "decideResult";
       render();
     });
+  }
+
+  /* 觀察名單：把網站上寫的篩選條件，實際套在證交所公開資料上的結果。
+     這是清單不是推薦——每一檔仍然要跑完下面八題。 */
+  function watchlistHTML() {
+    var S = window.SCREEN || {};
+    var meta = S.meta || {};
+    var sc = (S.screens || {})[state.result.path.id];
+
+    // 資料還沒抓到就老實說，不要生一份假名單出來
+    if (!meta.updated || !sc) {
+      return '<div class="card">' +
+        '<p class="eyebrow">觀察名單</p>' +
+        '<h3 class="h2">資料還沒抓</h3>' +
+        '<p class="fine" style="margin-top:8px">名單由 GitHub Action 每個交易日收盤後，' +
+          "從證交所與櫃買中心的公開 OpenAPI 抓取後產生。第一次執行之前這裡是空的——" +
+          "與其顯示一份編出來的名單，不如告訴你還沒有。</p>" +
+          '<p class="fine" style="margin-top:8px">你還是可以直接在上面輸入代號，' +
+          "自己跑完下面八題。</p>" +
+      "</div>";
+    }
+
+    var items = sc.items || [];
+    return '<div class="card">' +
+      '<p class="eyebrow">觀察名單 · 資料日期 ' + esc(meta.updated) + "</p>" +
+      '<h3 class="h2">符合這條路徑條件的標的</h3>' +
+      '<p class="fine" style="margin-top:8px"><b>這是篩選結果，不是推薦。</b>' +
+        "它只代表這幾檔通過了下面列出的條件，不代表適合你買。點一檔帶入上面的欄位，" +
+        "再用八題判斷一次。</p>" +
+
+      (sc.criteria && sc.criteria.length
+        ? '<p class="week-label">篩選條件</p><ul class="week-list">' +
+          sc.criteria.map(function (c) { return "<li>" + esc(c) + "</li>"; }).join("") + "</ul>"
+        : "") +
+
+      (items.length
+        ? '<div class="wl">' + items.map(function (r) {
+            return '<button class="wl-row" type="button" data-code="' + esc(r.code) + '" ' +
+              'data-name="' + esc(r.name) + '">' +
+              '<span class="wl-code tnum">' + esc(r.code) + "</span>" +
+              '<span class="wl-name">' + esc(r.name) + "</span>" +
+              '<span class="wl-nums tnum">' +
+                (r["yield"] != null ? "殖利率 " + r["yield"].toFixed(2) + "%　" : "") +
+                (r.pe != null ? "本益比 " + r.pe.toFixed(1) : "") +
+              "</span></button>";
+          }).join("") + "</div>"
+        : '<p class="fine" style="margin-top:12px">這次篩選沒有標的通過條件。' +
+          "條件寫死在 scripts/fetch_screen.py，可以自己調。</p>") +
+
+      (sc.manual && sc.manual.length
+        ? '<p class="week-label">API 查不到、要自己查的</p><ul class="week-list">' +
+          sc.manual.map(function (m) { return "<li>" + esc(m) + "</li>"; }).join("") + "</ul>"
+        : "") +
+
+      '<p class="fine" style="margin-top:14px">資料來源：' +
+        esc((meta.sources || []).join("、") || "證交所／櫃買中心 OpenAPI") + "</p>" +
+    "</div>";
   }
 
   /* ---- 該不該買：裁決 -------------------------------------------------- */

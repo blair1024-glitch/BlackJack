@@ -34,6 +34,7 @@
       planDownloaded: "plan_downloaded",
       decideStarted: "decide_started",
       decideCompleted: "decide_completed",
+      watchlistPicked: "watchlist_picked",
       emailSubmitted: "email_submitted",
       pricingViewed: "pricing_viewed",
       planSelected: "plan_selected",
