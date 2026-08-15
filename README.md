@@ -9,12 +9,22 @@
 
 ---
 
-## 🚀 上線（GitHub Pages）
+## 🚀 上線
 
-1. **Settings → Pages**
-2. **Source** 選 `Deploy from a branch`
-3. **Branch** 選 `main`、資料夾 `/ (root)`
-4. Save，等 1～2 分鐘
+純靜態、沒有 build 步驟，三種託管方式都可以。**完整步驟見 [`docs/deploy.md`](docs/deploy.md)。**
+
+| 託管方式 | 私有 repo | 費用 | 能不能鎖存取 | 適合 |
+| --- | --- | --- | --- | --- |
+| **Cloudflare Pages** | ✅ 支援 | 免費 | ✅ Zero Trust Access | **自用，推薦** |
+| GitHub Pages | ❌ 需要 Pro | 免費／$4 每月 | ❌ | 公開發布 |
+| 本機 | — | 免費 | ✅ | 只在電腦上用 |
+
+> ⚠️ **GitHub Pages 在私有 repo 上需要付費方案。** 免費帳號把 repo 轉 private，
+> Pages 就會停掉。要自用又要有網址，走 Cloudflare Pages——反正報價代理本來就要
+> 開 Cloudflare 帳號，一個帳號解決兩件事。
+
+最快的方式（公開版）：**Settings → Pages** → Source 選 `Deploy from a branch`
+→ Branch 選 `main`、資料夾 `/ (root)` → Save，等 1～2 分鐘。
 
 ---
 
@@ -37,12 +47,15 @@
 │   └── config.js              # ✍️ 手動：報價代理網址與更新頻率
 │   └── analytics.js           # 事件追蹤抽象層
 ├── docs/
-│   └── prompt.md              # 產生這個專案的主提示詞（三份整合後的版本）
+│   ├── prompt.md              # 產生這個專案的主提示詞（三份整合後的版本）
+│   └── deploy.md              # 部署指南：Worker、Pages、鎖存取、常見錯誤
 ├── data/
 │   ├── screen.js              # 🤖 自動產生：觀察名單（Action 每個交易日覆寫）
 │   └── history.json           # 🤖 自動累積：觀察名單標的的收盤價（算區間高低用）
 ├── worker/
-│   └── quote-proxy.js         # Cloudflare Worker：證交所盤中報價代理
+│   ├── quote-proxy.js         # Cloudflare Worker：證交所盤中報價代理
+│   └── wrangler.toml          # Worker 部署設定（CLI 用）
+├── _headers                   # Cloudflare Pages 的安全標頭
 ├── .github/workflows/
 │   └── update-screen.yml      # 每交易日收盤後抓證交所公開資料
 └── scripts/
@@ -192,6 +205,8 @@
 3. 複製網址填進 assets/config.js 的 quoteProxy
 ```
 
+完整步驟、CLI 部署方式與常見錯誤見 [`docs/deploy.md`](docs/deploy.md)。
+
 沒填就整支停用，網站其他功能照常運作，名單上會顯示怎麼開啟。
 
 接上之後多出三件事：
@@ -227,8 +242,15 @@
 
 `assets/config.js` 有一個 `selfUse` 開關，預設關閉。
 
-**打開之前先確認這個 repo 是 private，或 GitHub Pages 已經關掉。**
-公開的網站對不特定人提供個股買賣判斷，在台灣屬於證券投資顧問業務。
+**打開之前先確認網站真的鎖起來了。** 公開的網站對不特定人提供個股買賣判斷，
+在台灣屬於證券投資顧問業務。
+
+正確順序（詳見 [`docs/deploy.md`](docs/deploy.md) 第三節）：
+
+1. Cloudflare Access 生效（用無痕視窗確認會要求驗證）
+2. **關掉 GitHub Pages**（Settings → Pages → Source 設 None）——
+   不然舊網址還開著，鎖了新的等於沒鎖
+3. 才把 `selfUse` 改成 `true`
 
 打開之後**只有措辭會變**：拿掉為了公開發布而寫的法律說明，講法更直接；
 觀察名單從「這是篩選結果不是推薦」改成「今天通過你設的條件的標的」。

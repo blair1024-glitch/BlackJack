@@ -1,0 +1,16 @@
+# Cloudflare Pages 會讀這個檔案。GitHub Pages 和本機 http.server 會忽略它。
+# 語法：路徑一行，底下縮排兩格寫標頭。
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: DENY
+  Permissions-Policy: geolocation=(), microphone=(), camera=()
+
+# 資料檔每天更新一次，不要讓瀏覽器快取太久
+/data/*
+  Cache-Control: public, max-age=300
+
+# 設定檔改了要立刻生效
+/assets/config.js
+  Cache-Control: no-cache
