@@ -16,6 +16,21 @@ const BEST = {
   weight: "w5", horizon: "y5", drop: "review", exit: "rule"
 };
 
+/* 開站並把「會變動的狀態」歸零。
+   data/screen.js 由排程每天覆寫、assets/config.js 由使用者填，
+   兩者都不該影響測試結果——要測什麼狀態就在這裡指定。 */
+async function openApp(page, overrides) {
+  const o = overrides || {};
+  await page.goto(BASE, { waitUntil: "domcontentloaded" });
+  await page.evaluate((x) => {
+    window.CONFIG.quoteProxy = x.quoteProxy || "";
+    window.SCREEN = x.screen || { meta: {}, screens: {} };
+  }, {
+    quoteProxy: o.quoteProxy || "",
+    screen: o.screen || null,
+  });
+}
+
 // 從開場一路答到結果屏，供需要重跑漏斗的段落共用
 async function runFunnel(page) {
   await page.click("#start");
@@ -49,7 +64,7 @@ async function run(vp) {
   page.on("console", m => { if (m.type() === "error") errors.push(m.text()); });
   page.on("pageerror", e => errors.push(String(e)));
 
-  await page.goto(BASE, { waitUntil: "domcontentloaded" });
+  await openApp(page);
 
   // ---- 開場 ----
   ok(await page.locator("#start").isVisible(), "開場屏有「開始測驗」");
@@ -147,7 +162,9 @@ async function run(vp) {
   ok(/不推薦任何個股/.test(await page.locator(".notice").first().textContent()),
      "明講這個工具不推薦個股");
 
-  // 資料還沒抓的時候，要老實說，不能生一份假名單
+  // 資料還沒抓的時候，要老實說，不能生一份假名單。
+  // openApp() 已經把 SCREEN 歸零成空的，所以這裡驗的是真正的空狀態，
+  // 而不是「repo 裡剛好還沒有資料」。
   ok(/資料還沒抓/.test(await page.locator(".card").nth(1).textContent()),
      "觀察名單沒有資料時顯示誠實的空狀態");
 
@@ -240,7 +257,7 @@ async function run(vp) {
   ok((await page.locator(".cl").count()) === 0, "刪得掉");
 
   // 回到裁決頁繼續原本的流程
-  await page.goto(BASE, { waitUntil: "domcontentloaded" });
+  await openApp(page);
   ok((await page.locator("#saved").count()) === 0, "全部刪掉之後首頁不再顯示入口");
   await runFunnel(page);
   await page.click("#next"); await page.waitForSelector(".week");
@@ -329,7 +346,10 @@ async function run(vp) {
     };
   });
   await page.goto(BASE, { waitUntil: "domcontentloaded" });
-  await page.evaluate(() => { window.SCREEN = window.__FIXTURE_SCREEN; });
+  await page.evaluate(() => {
+    window.CONFIG.quoteProxy = "";                      // 這一段測沒有報價時的樣子
+    window.SCREEN = window.__FIXTURE_SCREEN;
+  });
 
   // 快速走到決策工具
   await page.click("#start");
@@ -388,6 +408,8 @@ async function run(vp) {
   await page.addInitScript(() => {
     window.__PATCH_CFG = true;
   });
+  // 明確指定成攔截得到的假網址——不要用 config.js 裡真實的 Worker，
+  // 那會讓測試依賴外部網路。
   await page.goto(BASE, { waitUntil: "domcontentloaded" });
   await page.evaluate(() => {
     window.CONFIG.quoteProxy = "https://example.invalid/fake-proxy";
@@ -436,6 +458,7 @@ async function run(vp) {
   await page.goto(BASE, { waitUntil: "domcontentloaded" });
   await page.evaluate(() => {
     window.CONFIG.selfUse = true;
+    window.CONFIG.quoteProxy = "";
     window.SCREEN = window.__FIXTURE_SCREEN;
   });
   await runFunnel(page);
