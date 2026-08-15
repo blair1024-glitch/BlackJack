@@ -62,6 +62,9 @@ async function run(vp) {
         await options.nth(1).click();
         await page.waitForTimeout(420);   // 單選 300ms 自動前進
       }
+    } else if (await page.locator("#nm").count()) {
+      await page.fill("#nm", "小陳");
+      await page.click("#go");
     } else if (await page.locator(".interstitial").count() && await next.count()) {
       sawInterstitial++;
       await next.click();
@@ -77,6 +80,9 @@ async function run(vp) {
   await page.waitForSelector(".path-steps", { timeout: 15000 });
   const badge = await page.locator(".badge").first().textContent();
   ok(!!badge, `結果屏顯示等級徽章（${badge.trim()}）`);
+  ok((await page.locator("h2.h1").textContent()).includes("小陳"), "結果屏用了使用者填的稱呼");
+  ok((await page.locator(".blocker").textContent()).length > 10, "有一句話點出最擋路的事");
+  ok((await page.locator(".gauge-pin").count()) > 0, "準備度有色階條");
   ok(await page.locator(".chart-wrap svg").isVisible(), "成長曲線畫出來了");
   const chartLabel = await page.locator(".chart-wrap svg").getAttribute("aria-label");
   ok(/不是投資報酬預測/.test(chartLabel), "曲線有標明不是報酬預測");
@@ -108,6 +114,59 @@ async function run(vp) {
   ok(md.includes("## 第 1 週"), "下載的檔案裡有週次內容");
   ok(md.includes("不構成投資建議"), "下載的檔案帶著免責聲明");
   ok(md.length > 1500, `下載的檔案有份量（${md.length} 字元）`);
+
+  await page.click("#next");
+
+  // ---- 該不該買 ----
+  await page.waitForSelector("#calc");
+  ok(await page.locator("#calc").isDisabled(), "八題沒答完不能算");
+  ok(/不推薦任何個股/.test(await page.locator(".notice").first().textContent()),
+     "明講這個工具不推薦個股");
+
+  await page.fill("#stk", "0050");
+  const boxes = page.locator("[data-q]");
+  const qn = await boxes.count();
+  ok(qn === 8, `決策工具有 8 個問題（實際 ${qn}）`);
+
+  // 先全選最糟的答案，應該會被擋下來
+  for (let i = 0; i < qn; i++) await boxes.nth(i).locator(".option").first().click();
+  ok(!(await page.locator("#calc").isDisabled()), "八題答完就能算");
+  await page.click("#calc");
+  await page.waitForSelector(".verdict-bad, .verdict-warn, .verdict-ok, .verdict-good");
+  let verdict = (await page.locator("h2.h1").textContent()).trim();
+  ok(verdict === "先不要買", `最糟的答案會被擋下來（${verdict}）`);
+  ok((await page.locator(".flag-hard").count()) > 0, "有硬紅旗區塊");
+  ok(/0050/.test(await page.locator(".eyebrow").first().textContent()), "裁決頁標出使用者輸入的標的");
+
+  // 改成最好的答案，結論要跟著變。
+  // 注意：不能用「最後一個選項」當成最好的——第 5 題最後一項是「超過 30%」，那是硬紅旗。
+  await page.click("#redo");
+  await page.waitForSelector("#calc");
+  const BEST = {
+    motive: "etf", understand: "deep", trend: "up", position: "low",
+    weight: "w5", horizon: "y5", drop: "review", exit: "rule"
+  };
+  for (const [qid, optId] of Object.entries(BEST)) {
+    await page.locator(`[data-q="${qid}"] [data-opt="${optId}"]`).click();
+  }
+  await page.click("#calc");
+  await page.waitForSelector("h2.h1");
+  const verdict2 = (await page.locator("h2.h1").textContent()).trim();
+  ok(verdict2 !== verdict, `換答案結論就變（${verdict} → ${verdict2}）`);
+  ok((await page.locator(".path-steps li").count()) >= 4, "給了具體操作步驟");
+  ok((await page.locator(".week-list li").count()) >= 4, "附上觀察名單的篩選條件");
+
+  // 裁決頁下載的檔案要同時包含週計畫與判斷紀錄
+  const dl2 = await Promise.all([page.waitForEvent("download"), page.click("#dl2")]);
+  const st2 = await dl2[0].createReadStream();
+  let md2 = "";
+  for await (const c of st2) md2 += c;
+  ok(md2.includes("## 第 1 週"), "下載的檔案仍有週計畫");
+  ok(md2.includes("「該不該買」判斷紀錄"), "下載的檔案含判斷紀錄");
+  ok(md2.includes("0050"), "判斷紀錄標出使用者輸入的標的");
+  ok(md2.includes("需金管會核發執照"), "檔案裡寫明本站不推薦個股的原因");
+  ok(md2.includes("小陳的"), "檔案標題用了使用者的稱呼");
+  ok(md2.length > md.length, `含判斷的檔案比純計畫長（${md.length} → ${md2.length}）`);
 
   await page.click("#next");
 
@@ -148,9 +207,10 @@ async function run(vp) {
   ok(true, "計畫與結果之間可以來回");
 
   await page.click("#next");
-  await page.waitForSelector("#email");
+  await page.waitForSelector("#calc");
+  ok(true, "計畫可以走到決策工具");
   await page.click("#back-btn");
-  ok(await page.locator(".week").count() > 0, "Email 屏返回會回到完整計畫");
+  ok(await page.locator(".week").count() > 0, "決策工具返回會回到完整計畫");
 
   await page.goto(BASE, { waitUntil: "domcontentloaded" });
   await page.click("#start");

@@ -443,3 +443,45 @@ input[type="range"] {
   .site-foot { border-top: 1px solid #bbb; margin-top: 12mm; }
   .disclaimer { font-size: 9pt; }
 }
+
+/* ---- 色階條：分數落在哪一段一眼看得出來 ---- */
+.gauge { margin-top: 14px; }
+.gauge-track {
+  position: relative; display: flex; height: 10px;
+  border-radius: 999px; overflow: hidden;
+}
+.gauge-seg { flex: 1; }
+.gauge-seg.s1 { background: #d13438; }
+.gauge-seg.s2 { background: #e08a2e; }
+.gauge-seg.s3 { background: #c9b02c; }
+.gauge-seg.s4 { background: #12885a; }
+.gauge-pin {
+  position: absolute; top: -4px; width: 4px; height: 18px;
+  border-radius: 2px; background: var(--text);
+  box-shadow: 0 0 0 2px var(--bg-elev);
+  transform: translateX(-2px);
+  transition: left 700ms cubic-bezier(.22, .61, .36, 1);
+}
+.gauge-labels {
+  display: flex; margin-top: 8px;
+  font-size: 11.5px; color: var(--text-faint);
+}
+.gauge-labels span { flex: 1; text-align: center; }
+
+/* ---- 一句話點出最擋路的事 ---- */
+.blocker { margin-top: 8px; line-height: 1.75; }
+
+/* ---- 裁決 ---- */
+.verdict-bad  { color: var(--up); }
+.verdict-warn { color: var(--warn); }
+.verdict-ok   { color: var(--text); }
+.verdict-good { color: var(--ok); }
+
+.flag { padding: 12px 0; border-bottom: 1px solid var(--border); }
+.flag:last-child { border-bottom: 0; padding-bottom: 0; }
+.flag b { display: block; margin-bottom: 4px; }
+.flag p { font-size: 14px; color: var(--text-muted); line-height: 1.65; margin: 0; }
+.flag-hard { border-color: var(--up); }
+.flag-hard .h2 { color: var(--up); }
+.flag-soft { border-color: var(--warn); }
+.flag-soft .h2 { color: var(--warn); }

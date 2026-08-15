@@ -86,10 +86,11 @@
     };
   }
 
-  /* 匯出成 Markdown，讓使用者真的帶得走 */
-  function toMarkdown(plan, result) {
+  /* 匯出成 Markdown，讓使用者真的帶得走。
+     decision 是選填——跑過「該不該買」的話就一起寫進同一份檔案。 */
+  function toMarkdown(plan, result, decision, stock, name) {
     var L = [];
-    L.push("# 我的 " + plan.totalWeeks + " 週台股學習計畫");
+    L.push("# " + (name ? name + "的 " : "我的 ") + plan.totalWeeks + " 週台股學習計畫");
     L.push("");
     L.push("**路徑**：" + plan.pathName + "  ");
     L.push("**等級**：" + result.level.name + "  ");
@@ -135,9 +136,43 @@
       L.push("");
     }
 
+    if (decision) {
+      L.push("---");
+      L.push("");
+      L.push("## 「該不該買」判斷紀錄" + (stock ? "：" + stock : ""));
+      L.push("");
+      L.push("**結論**：" + decision.verdict.label + "　（完備度 " + decision.score + " / 100）");
+      L.push("");
+      L.push("> " + decision.verdict.lead);
+      L.push("");
+
+      if (decision.hardFlags.length) {
+        L.push("### 必須先解決");
+        L.push("");
+        decision.hardFlags.forEach(function (f) { L.push("- **" + f.title + "**：" + f.why); });
+        L.push("");
+      }
+      if (decision.softFlags.length) {
+        L.push("### 還不夠紮實");
+        L.push("");
+        decision.softFlags.forEach(function (f) { L.push("- **" + f.title + "**：" + f.why); });
+        L.push("");
+      }
+
+      L.push("### 具體要怎麼做");
+      L.push("");
+      decision.steps.forEach(function (st, i) {
+        L.push((i + 1) + ". **" + st.head + "**　" + st.body);
+      });
+      L.push("");
+      L.push("這個結論衡量的是**你的準備**，不是這檔標的的好壞。條件變了就重跑一次。");
+      L.push("");
+    }
+
     L.push("---");
     L.push("");
     L.push("本計畫依測驗作答產生，為投資**教育**用途，不構成投資建議，也不保證任何投資結果。");
+    L.push("本站不推薦任何個股：對不特定人推薦個股買賣屬於證券投資顧問業務，需金管會核發執照。");
     L.push("內容中的稅率、費率等數字會隨年度調整，請以主管機關當年度公告為準。");
     L.push("");
     return L.join("\n");

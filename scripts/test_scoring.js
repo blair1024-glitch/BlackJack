@@ -10,12 +10,12 @@ const sandbox = { window: {}, console };
 sandbox.window.window = sandbox.window;
 vm.createContext(sandbox);
 
-for (const f of ["quiz-data.js", "scoring.js", "chart.js", "plan-content.js", "plan-builder.js"]) {
+for (const f of ["quiz-data.js", "scoring.js", "chart.js", "plan-content.js", "plan-builder.js", "decision.js"]) {
   const src = fs.readFileSync(path.join(__dirname, "..", "assets", f), "utf8");
   vm.runInContext(src, sandbox, { filename: f });
 }
 
-const { QUIZ, SCORING, CHART, PLAN_CONTENT, PLAN_BUILDER } = sandbox.window;
+const { QUIZ, SCORING, CHART, PLAN_CONTENT, PLAN_BUILDER, DECISION } = sandbox.window;
 
 let failed = 0;
 function ok(cond, msg) {
@@ -153,6 +153,72 @@ Object.keys(SCORING.PATHS).forEach(id => {
        m.why && m.points.length >= 3 && m.tasks.length >= 3 && m.check),
      `路徑「${SCORING.PATHS[id].name}」六個單元的內容都齊全`);
 });
+
+/* ---- 該不該買：裁決要真的隨答案改變 ---- */
+console.log("\n=== 該不該買 ===");
+
+const CASES = {
+  "聽朋友說的／錢隨時要用": {
+    motive: "tip", understand: "no", trend: "unchecked", position: "unchecked",
+    weight: "w5", horizon: "any", drop: "panic", exit: "none"
+  },
+  "重押一檔／佔比過半": {
+    motive: "cheap", understand: "clear", trend: "up", position: "mid",
+    weight: "w30up", horizon: "y5", drop: "review", exit: "written"
+  },
+  "功課做一半": {
+    motive: "income", understand: "vague", trend: "unchecked", position: "mid",
+    weight: "w10", horizon: "y3", drop: "freeze", exit: "mental"
+  },
+  "ETF 定期定額／準備齊全": {
+    motive: "etf", understand: "deep", trend: "na", position: "mid",
+    weight: "w5", horizon: "y5", drop: "review", exit: "rule"
+  }
+};
+
+const verdicts = {};
+for (const [name, ans] of Object.entries(CASES)) {
+  const d = DECISION.evaluate(ans, results["存股族／想要現金流"]);
+  verdicts[name] = d;
+  console.log(`\n${name}`);
+  console.log(`  → ${d.verdict.label}（完備度 ${d.score}）`);
+  console.log(`  硬紅旗 ${d.hardFlags.length} / 軟紅旗 ${d.softFlags.length} / 操作步驟 ${d.steps.length} 條`);
+}
+
+console.log("");
+ok(verdicts["聽朋友說的／錢隨時要用"].verdict.id === "stop", "錢隨時要用 → 先不要買");
+ok(verdicts["重押一檔／佔比過半"].verdict.id === "stop", "單一標的超過三成 → 先不要買（即使功課做足）");
+ok(verdicts["ETF 定期定額／準備齊全"].verdict.id === "go", "準備齊全 → 可以照規則執行");
+ok(new Set(Object.values(verdicts).map(d => d.verdict.id)).size >= 3, "四種情境至少分出三種裁決");
+
+// 硬紅旗要蓋過分數：功課做滿分也不能繞過
+const oversized = verdicts["重押一檔／佔比過半"];
+ok(oversized.hardFlags.length === 1 && oversized.hardFlags[0].key === "oversized",
+   "硬紅旗指出的是部位過大，不是別的");
+ok(oversized.score > verdicts["聽朋友說的／錢隨時要用"].score,
+   "功課做足的人分數比較高，但一樣被硬紅旗擋下來");
+
+// 分數與步驟
+ok(Object.values(verdicts).every(d => d.score >= 0 && d.score <= 100), "完備度都在 0–100 之間");
+ok(verdicts["ETF 定期定額／準備齊全"].steps.length >= 5, "可以買的時候給的是完整操作步驟");
+ok(verdicts["聽朋友說的／錢隨時要用"].steps.every(st => st.head && st.body), "每個步驟都有標題與內容");
+
+// 決定性
+const d1 = DECISION.evaluate(CASES["功課做一半"], results["存股族／想要現金流"]);
+const d2 = DECISION.evaluate(CASES["功課做一半"], results["存股族／想要現金流"]);
+ok(JSON.stringify(d1) === JSON.stringify(d2), "同一組答案的裁決完全相同");
+
+// 四條路徑都要有對應的篩選條件
+Object.keys(SCORING.PATHS).forEach(id => {
+  const sc = DECISION.SCREENS[id];
+  ok(!!sc && sc.rules.length >= 5 && sc.where,
+     `路徑「${SCORING.PATHS[id].name}」有篩選條件與查詢來源`);
+});
+
+// 這個工具不准出現任何具體的買進推薦
+const allText = JSON.stringify(DECISION);
+ok(!/建議買進|推薦買進|值得買|必買|買就對/.test(allText),
+   "決策引擎裡沒有任何推薦買進特定標的的字眼");
 
 console.log(failed ? `\n✗ ${failed} 項沒過\n` : "\n全部通過\n");
 process.exit(failed ? 1 : 0);

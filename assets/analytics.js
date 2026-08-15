@@ -32,6 +32,8 @@
       planViewed: "plan_viewed",
       planPrinted: "plan_printed",
       planDownloaded: "plan_downloaded",
+      decideStarted: "decide_started",
+      decideCompleted: "decide_completed",
       emailSubmitted: "email_submitted",
       pricingViewed: "pricing_viewed",
       planSelected: "plan_selected",
