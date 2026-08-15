@@ -585,3 +585,79 @@ input[type="range"] {
   background: var(--bg-sunken); color: var(--text-muted);
   font-size: 14px; line-height: 1.6;
 }
+
+/* ---- 輸入代號之後帶出來的資料 ---- */
+.stk-ctx {
+  margin-top: 12px; padding: 12px 14px;
+  background: var(--bg-sunken); border-radius: var(--radius-sm);
+}
+.stk-ctx-head { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.stk-ctx-head b { color: var(--brand); }
+.stk-ctx-q { margin-left: auto; }
+.stk-ctx .fine { margin-top: 4px; }
+
+.pos-hint {
+  margin-top: 10px; padding: 11px 13px; border-radius: var(--radius-sm);
+  background: var(--brand-soft); color: var(--text);
+  font-size: 13.5px; line-height: 1.65;
+}
+.pos-hint b { font-variant-numeric: tabular-nums; }
+
+/* ---- 體質速讀 ---- */
+.roe-box {
+  margin-top: 14px; padding: 16px; text-align: center;
+  background: var(--bg-sunken); border-radius: var(--radius-sm);
+}
+.roe-formula { font-size: 13px; color: var(--text-muted); }
+.roe-value {
+  font-size: 40px; font-weight: 800; letter-spacing: -.02em;
+  line-height: 1.15; margin: 4px 0 2px;
+}
+.ask-box {
+  margin-top: 14px; padding: 12px 14px; border-radius: var(--radius-sm);
+  background: var(--brand-soft); font-size: 14px; line-height: 1.7;
+}
+.ask-box b { color: var(--brand); }
+.note-box {
+  margin-top: 12px; padding: 12px 14px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); font-size: 14px; line-height: 1.7;
+}
+
+/* ---- 推導出來的每股數字 ---- */
+.derived {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
+  margin-top: 14px; background: var(--border);
+  border-radius: var(--radius-sm); overflow: hidden;
+}
+.derived > div {
+  background: var(--bg-elev); padding: 11px 13px;
+  display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+}
+.derived span { font-size: 12.5px; color: var(--text-muted); }
+.derived b { font-size: 15px; }
+
+/* ---- 要自己去求證的事 ---- */
+.verify { margin-top: 10px; display: grid; gap: 10px; }
+.verify-item {
+  padding: 12px 13px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+.verify-what { font-weight: 600; display: flex; gap: 9px; align-items: baseline; }
+.verify-n {
+  flex: none; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--brand-soft); color: var(--brand);
+  font-size: 12px; font-weight: 700; display: inline-grid; place-items: center;
+}
+.verify-item .fine { margin-top: 6px; padding-left: 29px; }
+
+/* ---- 體質與答案的對照 ---- */
+.match-bad, .match-ok {
+  margin-top: 10px; padding: 12px 14px; border-radius: var(--radius-sm);
+  border-left: 3px solid;
+}
+.match-bad { background: rgba(209,52,56,.07); border-left-color: var(--up); }
+.match-ok  { background: var(--ok-soft); border-left-color: var(--ok); }
+.match-bad b, .match-ok b { display: block; margin-bottom: 5px; }
+.match-bad p, .match-ok p {
+  margin: 0; font-size: 14px; line-height: 1.7; color: var(--text-muted);
+}

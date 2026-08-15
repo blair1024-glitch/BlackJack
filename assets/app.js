@@ -6,7 +6,7 @@
 
   var QUIZ = window.QUIZ, SCORING = window.SCORING, CHART = window.CHART;
   var BUILDER = window.PLAN_BUILDER, DECIDE = window.DECISION;
-  var LIST = window.CHECKLIST, Q = window.QUOTE;
+  var LIST = window.CHECKLIST, Q = window.QUOTE, AN = window.ANALYSIS;
   var T = window.ANALYTICS, N = T.NAMES;
 
   var app = document.getElementById("app");
@@ -709,12 +709,16 @@
             "它做的是把判斷的步驟攤開，讓你自己得出結論。</div>") +
 
         '<div class="card">' +
-          '<div class="field"><label for="stk">你在考慮哪一檔？</label>' +
-          '<input class="input" id="stk" type="text" maxlength="24" ' +
-            'placeholder="例如 0050 或 台積電" value="' + esc(state.stock) + '">' +
-          '<p class="fine" style="margin-top:6px">只是拿來標記這次判斷。' +
-            "下面的清單可以直接點選帶入。</p></div>" +
+          '<div class="field"><label for="stk">這次判斷是為哪一檔做的？</label>' +
+          '<input class="input" id="stk" type="text" maxlength="24" inputmode="numeric" ' +
+            'placeholder="輸入代號，例如 0050" value="' + esc(state.stock) + '">' +
+          '<p class="fine" style="margin-top:6px">輸入代號會幫你帶出現價與估值。' +
+            "但要提醒：<b>下面八題問的是你的處境，不是這檔股票的價格</b>——" +
+            "結論算的是你準備好了沒，不是這個價位划不划算。</p>" +
+          '<div id="stk-ctx"></div></div>' +
         "</div>" +
+
+        '<div id="stk-profile"></div>' +
 
         watchlistHTML() +
 
@@ -724,6 +728,7 @@
             '<p class="week-n">問題 ' + (i + 1) + " / " + qs.length + "</p>" +
             '<h3 class="h2">' + esc(q.title) + "</h3>" +
             (q.note ? '<p class="fine" style="margin-top:6px">' + esc(q.note) + "</p>" : "") +
+            (q.id === "position" ? '<div id="pos-hint"></div>' : "") +
             '<div class="options" role="radiogroup" aria-label="' + esc(q.title) + '">' +
               q.options.map(function (o) {
                 return '<button class="option" type="button" role="radio" aria-checked="' +
@@ -762,7 +767,107 @@
       });
     });
 
-    $("#stk").addEventListener("input", function () { state.stock = $("#stk").value.trim(); });
+    /* 輸入代號 → 帶出現價與估值。
+       這個欄位不影響任何計算，只是把使用者本來要自己去查的資料端到面前。
+       打字打到一半就發請求太吵，所以延遲 500ms。 */
+    var ctx = $("#stk-ctx"), posHint = $("#pos-hint"), typing = null, lastCode = null;
+
+    var profileSlot = $("#stk-profile");
+
+    function clearContext() {
+      lastCode = null;
+      if (ctx) ctx.innerHTML = "";
+      if (posHint) posHint.innerHTML = "";
+      if (profileSlot) profileSlot.innerHTML = "";
+    }
+
+    function showContext(code) {
+      if (code === lastCode) return;
+      lastCode = code;
+      var row = screenRowFor(code);
+
+      function paintWith(q) {
+        var name = (q && q.name) || (row && row.name) || "";
+        var price = q && q.price != null ? q.price : (row && row.close);
+        var pct = rangePct(row, price);
+
+        if (!name && price == null) {
+          ctx.innerHTML = '<div class="stk-ctx"><b>' + esc(code) + "</b>　" +
+            '<span class="fine">查不到這個代號的資料。可能是代號打錯，' +
+            "或它不在證交所的公開清單裡。不影響下面八題。</span></div>";
+          if (posHint) posHint.innerHTML = "";
+          return;
+        }
+
+        var bits = [];
+        if (row && row.pe != null) bits.push("本益比 " + row.pe.toFixed(2));
+        if (row && row["yield"] != null) bits.push("殖利率 " + row["yield"].toFixed(2) + "%");
+        if (row && row.pb != null) bits.push("股價淨值比 " + row.pb.toFixed(2));
+
+        // 有盤中報價就用報價，沒有就退回名單資料裡的收盤價——
+        // 沒部署 Worker 的人一樣看得到價格，只是標明是收盤而不是現價。
+        var priceHTML = q
+          ? quoteHTML(q)
+          : (row && row.close != null
+              ? '<span class="q q-flat">收盤 <b>' + row.close.toFixed(2) + "</b></span>"
+              : "");
+
+        ctx.innerHTML = '<div class="stk-ctx">' +
+          '<div class="stk-ctx-head"><b>' + esc(code) + "</b>" +
+            (name ? " " + esc(name) : "") +
+            (priceHTML ? '<span class="stk-ctx-q">' + priceHTML + "</span>" : "") + "</div>" +
+          (bits.length
+            ? '<div class="fine tnum">' + esc(bits.join("　")) + "</div>"
+            : '<div class="fine">' +
+              (row ? "這檔是 ETF，公開 API 沒有本益比與殖利率" :
+                     "不在目前的觀察名單裡，所以沒有估值資料") + "</div>") +
+          (q ? "" : '<div class="fine">' +
+            (row && row.close != null
+              ? "顯示的是資料日期當天的收盤價。" +
+                (Q.enabled() ? "盤中報價抓取中或抓不到。" : "要看盤中報價需設定報價代理。")
+              : (Q.enabled() ? "報價抓取中或抓不到，不影響作答。"
+                             : "沒有設定報價代理，所以沒有現價。")) + "</div>") +
+        "</div>";
+
+        // 第四題的提示：只講事實與資料基礎，不幫使用者選
+        if (!posHint) return;
+        if (pct == null) {
+          posHint.innerHTML = row
+            ? '<div class="pos-hint">還沒有足夠的收盤價歷史可以判斷區間位置' +
+              (row.histDays ? "（目前累積 " + row.histDays + " 個交易日）" : "") +
+              "，這題請自己查。</div>"
+            : "";
+          return;
+        }
+        var basis = row.histDays >= 240
+          ? "近一年區間" : "累積 " + row.histDays + " 個交易日的區間";
+        posHint.innerHTML = '<div class="pos-hint">' +
+          "依" + esc(basis) + "：低 " + row.low.toFixed(2) + "　高 " + row.high.toFixed(2) +
+          "　<b>現價約在 " + pct + "%</b>" +
+          (row.histDays >= 240 ? "" : "。天數不足一年，只能當參考") + "。" +
+          "<br>這是資料，不是答案——還是你自己選。</div>";
+      }
+
+      if (profileSlot) profileSlot.innerHTML = profileHTML(code);
+
+      paintWith(null);
+      if (Q.enabled()) {
+        Q.fetch([code]).then(function (map) {
+          if (lastCode === code) paintWith(map[code] || null);
+        });
+      }
+    }
+
+    function syncStock() {
+      state.stock = $("#stk").value.trim();
+      var code = LIST.codeOf(state.stock);
+      if (typing) clearTimeout(typing);
+      if (!code) { clearContext(); return; }
+      typing = setTimeout(function () { showContext(code); }, 500);
+    }
+
+    $("#stk").addEventListener("input", syncStock);
+    if (LIST.codeOf(state.stock)) showContext(LIST.codeOf(state.stock));
 
     // 名單上的標的抓一次報價
     (function () {
@@ -780,6 +885,7 @@
         state.stock = v;
         $("#stk").value = v;
         $$("[data-code]").forEach(function (b) { b.classList.toggle("on", b === btn); });
+        showContext(btn.getAttribute("data-code"));
         T.track(N.watchlistPicked, { code: btn.getAttribute("data-code") });
       });
     });
@@ -790,6 +896,130 @@
       state.flow = "decideResult";
       render();
     });
+  }
+
+  /* 在名單資料裡找某一檔的估值與區間。找不到回 null——
+     使用者可以輸入任何代號，不限於名單上的。 */
+  function screenRowFor(code) {
+    var screens = (window.SCREEN || {}).screens || {};
+    for (var k in screens) {
+      if (!Object.prototype.hasOwnProperty.call(screens, k)) continue;
+      var items = screens[k].items || [];
+      for (var i = 0; i < items.length; i++) {
+        if (items[i].code === code) return items[i];
+      }
+    }
+    return null;
+  }
+
+  /* 同一條路徑名單裡的所有標的，用來算這檔排第幾 */
+  function peersFor(code) {
+    var screens = (window.SCREEN || {}).screens || {};
+    for (var k in screens) {
+      if (!Object.prototype.hasOwnProperty.call(screens, k)) continue;
+      var items = screens[k].items || [];
+      for (var i = 0; i < items.length; i++) {
+        if (items[i].code === code) return items;
+      }
+    }
+    return [];
+  }
+
+  /* 體質速讀：從本益比與股價淨值比推出股東權益報酬率，再說明數字的意思。
+     全部是推導，不是預測——每一句都指得回它從哪個數字來。 */
+  function profileHTML(code) {
+    var row = screenRowFor(code);
+    if (!row) return "";
+    var p = AN.profile(row, peersFor(code));
+
+    if (!p.ok) {
+      return '<div class="card"><p class="eyebrow">體質速讀</p>' +
+        '<p class="fine" style="margin-top:8px">' + esc(p.reason) + "</p></div>";
+    }
+
+    function rank(r, label) {
+      if (!r) return "";
+      return '<li>' + esc(label) + " 在這份名單 <b>" + r.rank + " / " + r.total + "</b></li>";
+    }
+
+    return '<div class="card">' +
+      '<p class="eyebrow">體質速讀 · ' + esc(code) + (row.name ? " " + esc(row.name) : "") + "</p>" +
+
+      '<div class="roe-box">' +
+        '<div class="roe-formula tnum">股價淨值比 ' + p.pb.toFixed(2) +
+          " ÷ 本益比 " + p.pe.toFixed(2) + " =</div>" +
+        '<div class="roe-value tnum">' + p.roe.toFixed(1) + "%</div>" +
+        '<div class="fine">推算的股東權益報酬率（ROE）</div>' +
+      "</div>" +
+
+      '<div class="derived">' +
+        (p.eps != null ? '<div><span>每股盈餘</span><b class="tnum">' + p.eps.toFixed(2) + "</b></div>" : "") +
+        (p.bps != null ? '<div><span>每股淨值</span><b class="tnum">' + p.bps.toFixed(2) + "</b></div>" : "") +
+        (p.earningsYield != null ? '<div><span>盈餘殖利率</span><b class="tnum">' +
+          p.earningsYield.toFixed(2) + "%</b></div>" : "") +
+        (p.payoutRatio != null ? '<div><span>配發率</span><b class="tnum">' +
+          p.payoutRatio.toFixed(0) + "%</b></div>" : "") +
+      "</div>" +
+      '<p class="fine">每股盈餘＝股價÷本益比　每股淨值＝股價÷股價淨值比　' +
+        "盈餘殖利率＝1÷本益比　<b>配發率＝殖利率×本益比</b>。全部從公開數字推導，" +
+        "沒有翻財報。</p>" +
+
+      (p.payoutRatioNote
+        ? '<div class="note-box"><b>配發率 ' + p.payoutRatio.toFixed(0) + "%</b><br>" +
+          esc(p.payoutRatioNote) + "</div>"
+        : "") +
+
+      '<h3 class="h2" style="margin-top:18px">' + esc(p.quadrant.title) + "</h3>" +
+      '<p class="lede" style="margin-top:8px">' + esc(p.quadrant.why) + "</p>" +
+      '<div class="ask-box"><b>那你該去查什麼</b><br>' + esc(p.quadrant.ask) + "</div>" +
+
+      (p.quadrant.needs
+        ? '<p class="week-label">這種標的需要持有者具備</p><ul class="week-list">' +
+          p.quadrant.needs.map(function (n) { return "<li>" + esc(n) + "</li>"; }).join("") +
+          "</ul>"
+        : "") +
+
+      (p.quadrant.verify
+        ? '<p class="week-label">三件要自己去求證的事</p>' +
+          '<div class="verify">' +
+            p.quadrant.verify.map(function (v, i) {
+              return '<div class="verify-item">' +
+                '<div class="verify-what"><span class="verify-n">' + (i + 1) + "</span>" +
+                  esc(v.what) + "</div>" +
+                '<div class="fine"><b>去哪查</b>　' + esc(v.where) + "</div>" +
+                '<div class="fine"><b>怎樣算過關</b>　' + esc(v.pass) + "</div>" +
+              "</div>";
+            }).join("") +
+          "</div>"
+        : "") +
+
+      (p.premium
+        ? '<div class="note-box"><b>' + esc(p.premium.head) + "</b><br>" +
+          esc(p.premium.body) + "</div>"
+        : "") +
+
+      (p.payout
+        ? '<div class="note-box"><b>' + esc(p.payout.head) + "</b><br>" +
+          esc(p.payout.body) + "</div>"
+        : "") +
+
+      '<p class="week-label">相對位置</p><ul class="week-list">' +
+        rank(p.ranks.roe, "股東權益報酬率") +
+        rank(p.ranks.pe, "本益比（由低到高）") +
+        rank(p.ranks.yield, "殖利率") +
+      "</ul>" +
+
+      '<p class="fine" style="margin-top:16px">' +
+        p.caveat.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>") + "</p>" +
+    "</div>";
+  }
+
+  /* 現價落在累積區間的百分位。資料不足回 null，不硬算。 */
+  function rangePct(row, price) {
+    if (!row || price == null) return null;
+    if (row.high == null || row.low == null || row.high <= row.low) return null;
+    return Math.max(0, Math.min(100,
+      Math.round(((price - row.low) / (row.high - row.low)) * 100)));
   }
 
   /* 觀察名單：把網站上寫的篩選條件，實際套在證交所公開資料上的結果。
@@ -904,6 +1134,8 @@
             }).join("") +
           "</ol>" +
         "</div>" +
+
+        matchHTML() +
 
         screenHTML() +
 
@@ -1156,6 +1388,48 @@
         });
       });
     }
+  }
+
+  /* 框架的接點：體質需要什麼樣的持有者 × 你的八題答案 = 對不對得上。
+     只看體質不知道適不適合你，只看八題不知道這檔要求什麼。 */
+  function matchHTML() {
+    var code = LIST.codeOf(state.stock);
+    if (!code) return "";
+    var row = screenRowFor(code);
+    if (!row) return "";
+    var p = AN.profile(row, peersFor(code));
+    if (!p.ok) return "";
+    var m = AN.matchWith(p, state.decideAnswers);
+    if (!m || (!m.fits.length && !m.conflicts.length)) return "";
+
+    return '<div class="card">' +
+      '<p class="eyebrow">體質 × 你的答案</p>' +
+      '<h3 class="h2">' + esc(code) + (row.name ? " " + esc(row.name) : "") +
+        " 這種標的，跟你對不對得上</h3>" +
+      '<p class="fine" style="margin-top:8px">上面八題算的是你的準備，' +
+        "體質速讀說的是這檔要求什麼。兩邊對上才是該不該買——" +
+        "只看其中一邊都不完整。</p>" +
+
+      (m.conflicts.length
+        ? '<p class="week-label">對不上的地方</p>' +
+          m.conflicts.map(function (c) {
+            return '<div class="match-bad"><b>' + esc(c.head) + "</b><p>" +
+              esc(c.body) + "</p></div>";
+          }).join("")
+        : '<p class="week-label">沒有明顯的錯配</p>') +
+
+      (m.fits.length
+        ? '<p class="week-label">對得上的地方</p>' +
+          m.fits.map(function (f) {
+            return '<div class="match-ok"><b>' + esc(f.head) + "</b><p>" +
+              esc(f.body) + "</p></div>";
+          }).join("")
+        : "") +
+
+      '<p class="fine" style="margin-top:14px">對不上不代表不能買，' +
+        "代表你要嘛換標的、要嘛改條件（縮小部位、拉長期限、先把功課補完）。" +
+        "帶著沒解決的錯配進場，那些問題會在最糟的時候一起出現。</p>" +
+    "</div>";
   }
 
   /* 觀察名單怎麼自己篩——「推薦個股」的誠實版本 */
