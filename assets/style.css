@@ -187,7 +187,11 @@ h1, h2, h3, p { margin: 0; }
 .h2 { font-size: 21px; line-height: 1.4; font-weight: 700; }
 .lede { color: var(--text-muted); margin-top: 10px; }
 .muted { color: var(--text-muted); }
-.fine { font-size: 13px; color: var(--text-faint); line-height: 1.6; }
+.fine {
+  font-size: 13px; color: var(--text-faint); line-height: 1.6;
+  /* 資料來源那種長網址不能撐破卡片 */
+  overflow-wrap: anywhere;
+}
 
 .card {
   background: var(--bg-elev); border: 1px solid var(--border);
@@ -290,6 +294,7 @@ input[type="range"] {
   display: inline-block; padding: 5px 12px; border-radius: 999px;
   background: var(--brand-soft); color: var(--brand);
   font-size: 13px; font-weight: 700;
+  white-space: nowrap;   /* 「還沒進場」這種四字標籤不該被擠成兩行 */
 }
 .badge-soft { background: var(--bg-sunken); color: var(--text-muted); }
 
@@ -389,4 +394,194 @@ input[type="range"] {
     animation-iteration-count: 1 !important;
     transition-duration: .01ms !important;
   }
+}
+
+/* ---- 完整計畫：週次卡 ---- */
+.week { margin-top: 14px; }
+.week-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.week-n {
+  font-size: 13px; font-weight: 800; letter-spacing: .04em;
+  color: var(--brand); font-variant-numeric: tabular-nums;
+}
+.week-label {
+  font-size: 12px; font-weight: 700; letter-spacing: .08em;
+  color: var(--text-faint); margin-top: 16px;
+}
+.week-list, .task-list { margin: 8px 0 0; padding-left: 0; list-style: none; }
+.week-list li, .task-list li {
+  position: relative; padding-left: 22px; margin-top: 8px; line-height: 1.6;
+}
+.week-list li::before {
+  content: ""; position: absolute; left: 6px; top: .72em;
+  width: 5px; height: 5px; border-radius: 50%; background: var(--border-strong);
+}
+.task-list li::before {
+  content: ""; position: absolute; left: 0; top: .32em;
+  width: 14px; height: 14px; border-radius: 4px;
+  border: 1.5px solid var(--border-strong);
+}
+.week-check {
+  margin-top: 16px; padding: 11px 13px; border-radius: var(--radius-sm);
+  background: var(--ok-soft); color: var(--text); font-size: 14px; line-height: 1.6;
+}
+.week-check b { color: var(--ok); margin-right: 2px; }
+
+/* ---- 列印：只留計畫本身 ---- */
+@media print {
+  @page { margin: 16mm; }
+  :root {
+    --bg: #fff; --bg-elev: #fff; --bg-sunken: #fff;
+    --text: #000; --text-muted: #333; --text-faint: #555;
+    --border: #bbb; --border-strong: #888;
+    --brand: #14448f; --ok: #0a6b45;
+    --shadow: none; --shadow-sm: none;
+  }
+  body { background: #fff; font-size: 11.5pt; }
+  .masthead, .progress, .sticky-foot, .no-print, .skip-link, .site-foot .demo-note { display: none !important; }
+  .app { max-width: none; padding: 0; }
+  .screen { animation: none; }
+  .card { border: 1px solid #bbb; box-shadow: none; page-break-inside: avoid; break-inside: avoid; }
+  .week { page-break-inside: avoid; break-inside: avoid; }
+  .h1 { font-size: 20pt; }
+  .h2 { font-size: 13pt; }
+  .badge { border: 1px solid #888; }
+  .site-foot { border-top: 1px solid #bbb; margin-top: 12mm; }
+  .disclaimer { font-size: 9pt; }
+}
+
+/* ---- 色階條：分數落在哪一段一眼看得出來 ---- */
+.gauge { margin-top: 14px; }
+.gauge-track {
+  position: relative; display: flex; height: 10px;
+  border-radius: 999px; overflow: hidden;
+}
+.gauge-seg { flex: 1; }
+.gauge-seg.s1 { background: #d13438; }
+.gauge-seg.s2 { background: #e08a2e; }
+.gauge-seg.s3 { background: #c9b02c; }
+.gauge-seg.s4 { background: #12885a; }
+.gauge-pin {
+  position: absolute; top: -4px; width: 4px; height: 18px;
+  border-radius: 2px; background: var(--text);
+  box-shadow: 0 0 0 2px var(--bg-elev);
+  transform: translateX(-2px);
+  transition: left 700ms cubic-bezier(.22, .61, .36, 1);
+}
+.gauge-labels {
+  display: flex; margin-top: 8px;
+  font-size: 11.5px; color: var(--text-faint);
+}
+.gauge-labels span { flex: 1; text-align: center; }
+
+/* ---- 一句話點出最擋路的事 ---- */
+.blocker { margin-top: 8px; line-height: 1.75; }
+
+/* ---- 裁決 ---- */
+.verdict-bad  { color: var(--up); }
+.verdict-warn { color: var(--warn); }
+.verdict-ok   { color: var(--text); }
+.verdict-good { color: var(--ok); }
+
+.flag { padding: 12px 0; border-bottom: 1px solid var(--border); }
+.flag:last-child { border-bottom: 0; padding-bottom: 0; }
+.flag b { display: block; margin-bottom: 4px; }
+.flag p { font-size: 14px; color: var(--text-muted); line-height: 1.65; margin: 0; }
+.flag-hard { border-color: var(--up); }
+.flag-hard .h2 { color: var(--up); }
+.flag-soft { border-color: var(--warn); }
+.flag-soft .h2 { color: var(--warn); }
+
+/* ---- 觀察名單 ---- */
+.wl { margin-top: 14px; display: grid; gap: 8px; }
+.wl-row {
+  display: flex; align-items: baseline; gap: 10px; width: 100%;
+  min-height: 48px; padding: 11px 13px; text-align: left;
+  background: var(--bg-elev); color: var(--text);
+  border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color var(--dur) ease, background var(--dur) ease;
+}
+.wl-row:hover { border-color: var(--border-strong); }
+.wl-row.on { border-color: var(--brand); background: var(--brand-soft); }
+.wl-code { font-weight: 700; color: var(--brand); flex: none; }
+.wl-name { flex: 1; min-width: 0; }
+.wl-nums { font-size: 12.5px; color: var(--text-muted); flex: none; }
+
+/* ---- 進場檢查表 ---- */
+.saved-entry {
+  display: block; width: 100%; text-align: left; cursor: pointer;
+  border: 1.5px solid var(--brand); background: var(--brand-soft);
+  border-radius: var(--radius); padding: 15px;
+  transition: background var(--dur) ease;
+}
+.saved-entry:hover { background: color-mix(in srgb, var(--brand) 16%, transparent); }
+
+.cl-head {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border);
+}
+.badge-ok    { background: var(--ok-soft); color: var(--ok); }
+.badge-warn  { background: rgba(180,117,0,.13); color: var(--warn); }
+.badge-muted { background: var(--bg-sunken); color: var(--text-muted); }
+
+.cl-checks { margin-top: 8px; display: grid; gap: 8px; }
+.cl-check {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  min-height: 44px; padding: 9px 11px; text-align: left;
+  background: var(--bg-sunken); color: var(--text);
+  border: 0; border-radius: var(--radius-sm); cursor: pointer;
+  font-size: 14px; line-height: 1.5;
+}
+.cl-check .option-check { width: 20px; height: 20px; font-size: 12px; }
+.cl-check[aria-checked="true"] { color: var(--text-muted); }
+.cl-check[aria-checked="true"] .option-check {
+  background: var(--ok); border-color: var(--ok); color: var(--bg-elev);
+}
+
+.cl-foot {
+  display: flex; gap: 10px; align-items: center;
+  margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border);
+}
+.cl-status {
+  flex: 1; min-height: 40px; padding: 8px 10px;
+  background: var(--bg-elev); color: var(--text);
+  border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+}
+.cl-del {
+  min-height: 40px; padding: 8px 14px; background: none;
+  border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+  color: var(--text-muted); font-size: 14px; cursor: pointer;
+}
+.cl-del:hover { border-color: var(--up); color: var(--up); }
+
+/* ---- 盤中報價：台股紅漲綠跌 ---- */
+.q { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.q-up   { color: var(--up); }
+.q-down { color: var(--down); }
+.q-flat { color: var(--text-muted); }
+.q-none { color: var(--text-faint); }
+.q-basis {
+  margin-left: 4px; padding: 1px 5px; border-radius: 4px;
+  background: var(--bg-sunken); color: var(--text-faint);
+  font-size: 11px; font-weight: 600;
+}
+.q-range { margin: 8px 4px 4px; }
+.q-range-bar {
+  position: relative; height: 6px; border-radius: 999px;
+  background: linear-gradient(to right, var(--down), var(--bg-sunken), var(--up));
+}
+.q-range-pin {
+  position: absolute; top: -3px; width: 3px; height: 12px;
+  border-radius: 2px; background: var(--text);
+  box-shadow: 0 0 0 2px var(--bg-elev); transform: translateX(-1.5px);
+}
+.stop-hit {
+  margin-top: 12px; padding: 11px 13px; border-radius: var(--radius-sm);
+  background: rgba(209,52,56,.10); color: var(--up);
+  font-size: 14px; font-weight: 600; line-height: 1.6;
+}
+.stop-ok {
+  margin-top: 12px; padding: 11px 13px; border-radius: var(--radius-sm);
+  background: var(--bg-sunken); color: var(--text-muted);
+  font-size: 14px; line-height: 1.6;
 }

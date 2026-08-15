@@ -1,0 +1,16 @@
+# Cloudflare Worker 設定 — 報價代理
+#
+# 用 CLI 部署：
+#   cd worker
+#   npx wrangler login
+#   npx wrangler deploy
+#
+# 不想裝 CLI 的話，直接把 quote-proxy.js 貼進 Cloudflare 網頁編輯器也一樣。
+# 詳見 docs/deploy.md。
+
+name = "tw-quote"
+main = "quote-proxy.js"
+compatibility_date = "2026-01-01"
+
+# 這裡不放 account_id：wrangler login 之後會自己問，
+# 而且帳號 ID 不該進版控。

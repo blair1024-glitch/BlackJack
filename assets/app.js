@@ -5,6 +5,8 @@
   "use strict";
 
   var QUIZ = window.QUIZ, SCORING = window.SCORING, CHART = window.CHART;
+  var BUILDER = window.PLAN_BUILDER, DECIDE = window.DECISION;
+  var LIST = window.CHECKLIST, Q = window.QUOTE;
   var T = window.ANALYTICS, N = T.NAMES;
 
   var app = document.getElementById("app");
@@ -36,6 +38,9 @@
     } catch (e) { }
     return null;
   }
+  /* 自用模式：只影響措辭，不影響任何判斷邏輯。見 assets/config.js 的說明。 */
+  function selfUse() { return !!(window.CONFIG && window.CONFIG.selfUse); }
+
   function reducedMotion() {
     return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   }
@@ -64,10 +69,17 @@
 
   /* ---- 狀態 ------------------------------------------------------------ */
   var state = {
-    flow: "intro",          // intro | steps | analyzing | plan | email | pricing | done
+    flow: "intro",          // intro | steps | naming | analyzing | plan | planDetail
+                            //   | decide | decideResult | ruleForm | checklist
+                            //   | email | pricing | done
     stepIndex: 0,
     answers: {},
     result: null,
+    studyPlan: null,        // 週次表，進 planDetail 時才建
+    name: "",               // 稱呼，可跳過
+    stock: "",              // 使用者正在考慮的標的（只是標籤，我們不查它）
+    decideAnswers: {},
+    decision: null,
     email: "",
     plan: "p12"
   };
@@ -93,13 +105,21 @@
 
   function syncBack() {
     var canBack = (state.flow === "steps" && state.stepIndex > 0) ||
-                  state.flow === "email" || state.flow === "pricing";
+                  state.flow === "planDetail" || state.flow === "decide" ||
+                  state.flow === "decideResult" || state.flow === "ruleForm" ||
+                  state.flow === "checklist" || state.flow === "email" ||
+                  state.flow === "pricing";
     backBtn.hidden = !canBack;
   }
 
   function goBack() {
     if (state.flow === "steps" && state.stepIndex > 0) { state.stepIndex--; render(); return; }
-    if (state.flow === "email") { state.flow = "plan"; render(); return; }
+    if (state.flow === "planDetail") { state.flow = "plan"; render(); return; }
+    if (state.flow === "decide") { state.flow = "planDetail"; render(); return; }
+    if (state.flow === "decideResult") { state.flow = "decide"; render(); return; }
+    if (state.flow === "ruleForm") { state.flow = "decideResult"; render(); return; }
+    if (state.flow === "checklist") { state.flow = state.result ? "decideResult" : "intro"; render(); return; }
+    if (state.flow === "email") { state.flow = "decideResult"; render(); return; }
     if (state.flow === "pricing") { state.flow = "email"; render(); return; }
   }
   backBtn.addEventListener("click", goBack);
@@ -115,9 +135,93 @@
 
   function advance() {
     if (state.stepIndex < STEPS.length - 1) { state.stepIndex++; render(); return; }
-    state.flow = "analyzing";
+    state.flow = "naming";
     T.track(N.quizCompleted, { answered: Object.keys(state.answers).length });
     render();
+  }
+
+  /* ---- 稱呼：純粹讓後面的文案叫得出名字，可跳過 ---------------------- */
+  function renderNaming() {
+    paint(
+      '<div class="stack-lg">' +
+        "<div>" +
+          '<p class="eyebrow">最後一題，不算在 13 題裡</p>' +
+          '<h2 class="h1" data-focus tabindex="-1">我該怎麼稱呼你？</h2>' +
+          '<p class="lede">只是讓計畫上有你的名字。不填也可以，不會存到任何地方。</p>' +
+        "</div>" +
+        '<div class="card">' +
+          '<div class="field"><label for="nm">你的稱呼</label>' +
+          '<input class="input" id="nm" type="text" maxlength="20" autocomplete="given-name" ' +
+            'placeholder="例如：小陳" value="' + esc(state.name) + '"></div>' +
+        "</div>" +
+        '<div class="sticky-foot">' +
+          '<button class="btn" id="go">繼續</button>' +
+          '<button class="btn btn-ghost" id="skip" style="margin-top:10px">跳過</button></div>' +
+      "</div>"
+    );
+    function go() {
+      var v = $("#nm").value.trim();
+      state.name = v.slice(0, 20);
+      state.flow = "analyzing";
+      render();
+    }
+    $("#go").addEventListener("click", go);
+    $("#skip").addEventListener("click", function () { state.name = ""; state.flow = "analyzing"; render(); });
+    $("#nm").addEventListener("keydown", function (e) { if (e.key === "Enter") go(); });
+  }
+
+  /* ---- 報價：台股慣例紅漲綠跌，跟美股相反 ---------------------------- */
+  function quoteHTML(q) {
+    if (!q || q.price == null) return '<span class="q-none">—</span>';
+    var tone = Q.toneOf(q.change);
+    var sign = q.change > 0 ? "+" : "";
+    return '<span class="q q-' + tone + '">' +
+      "<b>" + q.price.toFixed(2) + "</b>" +
+      (q.changePct == null ? "" :
+        " " + sign + q.changePct.toFixed(2) + "%") +
+      (q.basis !== "成交" ? '<span class="q-basis">' + esc(q.basis) + "</span>" : "") +
+    "</span>";
+  }
+
+  /* 現價落在累積區間的哪個位置。天數不足一年就照實說。 */
+  function rangeHTML(item, q) {
+    if (!item || item.high == null || item.low == null || item.high <= item.low) return "";
+    if (!q || q.price == null) return "";
+    var pct = Math.round(((q.price - item.low) / (item.high - item.low)) * 100);
+    pct = Math.max(0, Math.min(100, pct));
+    var label = item.histDays >= 240 ? "近一年區間" : "累積 " + item.histDays + " 個交易日的區間";
+    return '<div class="q-range"><div class="q-range-bar">' +
+      '<span class="q-range-pin" style="left:' + pct + '%"></span></div>' +
+      '<div class="fine">' + esc(label) + "：低 " + item.low.toFixed(2) +
+      "　高 " + item.high.toFixed(2) + "　現在約在 " + pct + "%</div></div>";
+  }
+
+  /* 抓報價並把畫面上對應的位置填進去。失敗就維持原樣，不擋任何流程。 */
+  function hydrateQuotes(codes, itemsByCode) {
+    if (!Q.enabled() || !codes.length) return;
+    Q.fetch(codes).then(function (map) {
+      Object.keys(map).forEach(function (code) {
+        var slot = document.querySelector('[data-q-slot="' + code + '"]');
+        if (slot) slot.innerHTML = quoteHTML(map[code]);
+        var rangeSlot = document.querySelector('[data-q-range="' + code + '"]');
+        if (rangeSlot && itemsByCode && itemsByCode[code]) {
+          rangeSlot.innerHTML = rangeHTML(itemsByCode[code], map[code]);
+        }
+      });
+    });
+  }
+
+  /* ---- 色階條：分數落在哪一段一眼看得出來 ---------------------------- */
+  function gaugeHTML(score, labels) {
+    return '<div class="gauge">' +
+      '<div class="gauge-track" role="img" aria-label="分數 ' + score + ' 分，滿分 100">' +
+        '<span class="gauge-seg s1"></span><span class="gauge-seg s2"></span>' +
+        '<span class="gauge-seg s3"></span><span class="gauge-seg s4"></span>' +
+        '<span class="gauge-pin" style="left:' + score + '%"></span>' +
+      "</div>" +
+      '<div class="gauge-labels">' +
+        labels.map(function (l) { return "<span>" + esc(l) + "</span>"; }).join("") +
+      "</div></div>";
   }
 
   /* ---- 開場鉤子 -------------------------------------------------------- */
@@ -143,9 +247,14 @@
             "約 " + QUIZ.meta.estMinutes + " 分鐘 · 免費 · 隨時可以回上一題改答案</p>" +
         "</div>" +
 
+        savedEntryHTML() +
+
         '<p class="fine">本測驗為教育用途，結果是學習路徑建議，不構成投資建議。</p>' +
       "</div>"
     );
+
+    var saved = $("#saved");
+    if (saved) saved.addEventListener("click", function () { state.flow = "checklist"; render(); });
 
     $("#start").addEventListener("click", function () {
       state.flow = "steps";
@@ -153,6 +262,18 @@
       T.track(N.quizStarted, { total: TOTAL });
       render();
     });
+  }
+
+  /* 之前存過檢查表的話，開場就給一個回去的入口——規則放著不看等於沒寫 */
+  function savedEntryHTML() {
+    var items = LIST.all();
+    if (!items.length) return "";
+    var open = items.filter(function (it) { return it.status === "planning" || it.status === "entered"; });
+    return '<button class="card saved-entry" type="button" id="saved">' +
+      '<div><b>你有 ' + items.length + " 張進場檢查表</b>" +
+      (open.length ? "　" + open.length + " 張還在進行中" : "") + "</div>" +
+      '<div class="fine" style="margin-top:4px">看你上次寫下的規則 →</div>' +
+    "</button>";
   }
 
   /* ---- 選項卡 ---------------------------------------------------------- */
@@ -378,6 +499,20 @@
     return "你的準備度偏高，適合直接進到研究與風險管理的深水區。";
   }
 
+  /* 三個維度裡最低的那個，就是現在最擋路的東西——講一句話，不列清單 */
+  function blockerOf(r) {
+    var low = r.meters.slice().sort(function (a, b) { return a.value - b.value; })[0];
+    var MSG = {
+      knowledge:  "你的基礎知識分數最低。現在最需要的不是更多明牌，是先把幾個名詞真的弄懂——" +
+                  "除權息、三率、殖利率，這三個搞清楚，你看新聞的方式就會變。",
+      risk:       "你的風險準備分數最低。這不是說你膽子小，是說你還沒決定「最多能虧多少」。" +
+                  "在那個數字出來之前，買什麼都會睡不好。",
+      discipline: "你的執行紀律分數最低。你知道的東西可能夠了，缺的是把規則寫下來——" +
+                  "寫下來的規則才擋得住當下的情緒。"
+    };
+    return MSG[low.key] || "";
+  }
+
   function renderPlan() {
     var r = state.result, L = labelsFor(r);
     var chart = CHART.growth({ readiness: r.readiness, weeks: r.weeks, timeScore: r.scores.time });
@@ -387,7 +522,8 @@
       '<div class="stack-lg">' +
         "<div>" +
           '<p class="eyebrow">你的結果</p>' +
-          '<h2 class="h1" data-focus tabindex="-1">你的起手式出來了 🎉</h2>' +
+          '<h2 class="h1" data-focus tabindex="-1">' +
+            (state.name ? esc(state.name) + "，你的起手式出來了 🎉" : "你的起手式出來了 🎉") + "</h2>" +
           '<p class="lede">依你剛剛的 ' + TOTAL + " 題作答計算，沒有兩份會完全一樣。</p>" +
           '<p style="margin-top:12px"><span class="badge">' + esc(r.level.name) + "</span> " +
             '<span class="badge badge-soft">準備度 ' + r.readiness + " / 100</span></p>" +
@@ -398,6 +534,17 @@
           '<div class="summary-cell"><div class="summary-key">想學的市場</div><div class="summary-val">' + esc(L.markets) + "</div></div>" +
           '<div class="summary-cell"><div class="summary-key">每日節奏</div><div class="summary-val">' + esc(L.time || "未指定") + "</div></div>" +
           '<div class="summary-cell"><div class="summary-key">預估入門</div><div class="summary-val">' + r.weeks + " 週</div></div>" +
+        "</div>" +
+
+        '<div class="card">' +
+          '<p class="eyebrow">最擋住你的一件事</p>' +
+          '<p class="blocker">' + esc(blockerOf(r)) + "</p>" +
+        "</div>" +
+
+        '<div class="card">' +
+          '<h3 class="h2">你的準備度</h3>' +
+          gaugeHTML(r.readiness, ["還在起步", "打底中", "站得穩", "可以進階"]) +
+          '<p class="fine" style="margin-top:12px">' + esc(readinessNote(r.readiness)) + "</p>" +
         "</div>" +
 
         '<div class="card">' +
@@ -428,7 +575,8 @@
           "</ol>" +
         "</div>" +
 
-        '<div class="sticky-foot"><button class="btn" id="next">把這份計畫存起來</button></div>' +
+        '<div class="sticky-foot"><button class="btn" id="next">看我的完整 ' + r.weeks + ' 週計畫</button>' +
+          '<p class="fine" style="text-align:center;margin-top:8px">免費，不用留 Email</p></div>' +
       "</div>"
     );
 
@@ -437,7 +585,593 @@
       $$(".meter-fill").forEach(function (el) { el.style.width = el.getAttribute("data-w") + "%"; });
     });
 
+    $("#next").addEventListener("click", function () { state.flow = "planDetail"; render(); });
+  }
+
+  /* ---- 完整計畫：這才是使用者真正拿得走的東西 -------------------------- */
+  function renderPlanDetail() {
+    var r = state.result;
+    if (!state.studyPlan) state.studyPlan = BUILDER.build(r, state.answers);
+    var plan = state.studyPlan;
+    T.track(N.planViewed, { path: plan.pathId, weeks: plan.totalWeeks });
+
+    var weeksHTML = plan.weeks.map(function (w) {
+      return '<article class="card week">' +
+        '<div class="week-head"><span class="week-n">第 ' + w.n + " 週</span>" +
+          (w.phase ? '<span class="badge badge-soft">' + esc(w.phase) + "</span>" : "") + "</div>" +
+        '<h3 class="h2">' + esc(w.title) + "</h3>" +
+        (w.why ? '<p class="lede">' + esc(w.why) + "</p>" : "") +
+        (w.points.length
+          ? '<p class="week-label">本週重點</p><ul class="week-list">' +
+            w.points.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>"
+          : "") +
+        (w.tasks.length
+          ? '<p class="week-label">本週任務</p><ul class="task-list">' +
+            w.tasks.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>"
+          : "") +
+        (w.check ? '<p class="week-check"><b>檢查點</b>　' + esc(w.check) + "</p>" : "") +
+      "</article>";
+    }).join("");
+
+    paint(
+      '<div class="stack-lg">' +
+        "<div>" +
+          '<p class="eyebrow">你的完整計畫</p>' +
+          '<h2 class="h1" data-focus tabindex="-1">' + plan.totalWeeks + " 週・" + esc(plan.pathName) + "</h2>" +
+          '<p class="lede">' + esc(plan.intro) + "</p>" +
+          '<p style="margin-top:12px">' +
+            '<span class="badge">' + esc(plan.rhythm.perDay) + "</span> " +
+            '<span class="badge badge-soft">' + plan.counts.points + " 條重點</span> " +
+            '<span class="badge badge-soft">' + plan.counts.tasks + " 項任務</span></p>" +
+        "</div>" +
+
+        '<div class="notice"><b>節奏建議</b>　' + esc(plan.rhythm.how) + "</div>" +
+
+        weeksHTML +
+
+        (plan.extras.length
+          ? '<div class="card"><h3 class="h2">之後可以再學</h3>' +
+            '<p class="fine">你這次選的時間排不下這幾個單元，等前面走完再回來。</p>' +
+            '<ul class="week-list" style="margin-top:12px">' +
+              plan.extras.map(function (e) {
+                return "<li><b>" + esc(e.title) + "</b>：" + esc(e.why) + "</li>";
+              }).join("") +
+            "</ul></div>"
+          : "") +
+
+        '<div class="card no-print">' +
+          '<h3 class="h2">把計畫帶走</h3>' +
+          '<p class="fine">這份計畫在你的瀏覽器裡，重整就沒了。存一份起來。</p>' +
+          '<div style="margin-top:14px;display:grid;gap:10px">' +
+            '<button class="btn btn-ghost" id="print">列印，或存成 PDF</button>' +
+            '<button class="btn btn-ghost" id="dl">下載 Markdown 檔</button>' +
+          "</div>" +
+        "</div>" +
+
+        '<div class="sticky-foot no-print">' +
+          '<button class="btn" id="next">下一步：我現在該不該買？</button>' +
+          '<p class="fine" style="text-align:center;margin-top:8px">' +
+            "把「該不該買」拆成八個你自己答得出來的問題</p></div>" +
+      "</div>"
+    );
+
+    $("#print").addEventListener("click", function () {
+      T.track(N.planPrinted, { path: plan.pathId });
+      window.print();
+    });
+
+    $("#dl").addEventListener("click", function () { downloadPlan(plan); });
+
+    $("#next").addEventListener("click", function () { state.flow = "decide"; render(); });
+  }
+
+  /* 下載計畫（跑過決策的話會一併帶上判斷紀錄） */
+  function downloadPlan(plan) {
+    var md = BUILDER.toMarkdown(plan, state.result, state.decision, state.stock, state.name);
+    var blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    // 檔名刻意用 ASCII：Chromium 遇到含中文的 download 檔名會整個丟掉，
+    // 退回成沒有副檔名的 "download"，使用者拿到一個打不開的檔案。
+    // 檔案內容本身是 UTF-8 中文，不受影響。
+    a.download = "tw-stock-study-plan-" + plan.totalWeeks + "w.md";
+    document.body.appendChild(a);
+    a.click();
+    // 不能馬上移除：Chromium 是非同步處理下載的，太早拔掉 <a> 會連 download
+    // 屬性一起弄丟，檔名就變成 "download"。等一秒再一起清掉。
+    setTimeout(function () {
+      if (a.parentNode) a.parentNode.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 1000);
+    T.track(N.planDownloaded, { path: plan.pathId, bytes: md.length, withDecision: !!state.decision });
+  }
+
+  /* ---- 該不該買：八個問題 ---------------------------------------------- */
+  function renderDecide() {
+    var qs = DECIDE.QUESTIONS;
+    T.track(N.decideStarted, {});
+
+    paint(
+      '<div class="stack-lg">' +
+        "<div>" +
+          '<p class="eyebrow">最後一哩</p>' +
+          '<h2 class="h1" data-focus tabindex="-1">我現在該不該買？</h2>' +
+          '<p class="lede">回答八個問題，算出該買、該等、該縮小，還是先不要買。' +
+            "結論是從你的答案算出來的。</p>" +
+        "</div>" +
+
+        (selfUse()
+          ? '<div class="notice"><b>這是你自己的判斷</b>　結論從你的答案算出來，' +
+            "不是別人的意見。答案變了結論就會變，所以誠實回答比答得好看重要。</div>"
+          : '<div class="notice"><b>先說清楚</b>　這個工具<b>不推薦任何個股</b>，也不查即時股價。' +
+            "在台灣，對不特定人推薦個股買賣屬於證券投資顧問業務，需要金管會核發的執照。" +
+            "它做的是把判斷的步驟攤開，讓你自己得出結論。</div>") +
+
+        '<div class="card">' +
+          '<div class="field"><label for="stk">你在考慮哪一檔？</label>' +
+          '<input class="input" id="stk" type="text" maxlength="24" ' +
+            'placeholder="例如 0050 或 台積電" value="' + esc(state.stock) + '">' +
+          '<p class="fine" style="margin-top:6px">只是拿來標記這次判斷。' +
+            "下面的清單可以直接點選帶入。</p></div>" +
+        "</div>" +
+
+        watchlistHTML() +
+
+        qs.map(function (q, i) {
+          var cur = state.decideAnswers[q.id];
+          return '<div class="card" data-q="' + esc(q.id) + '">' +
+            '<p class="week-n">問題 ' + (i + 1) + " / " + qs.length + "</p>" +
+            '<h3 class="h2">' + esc(q.title) + "</h3>" +
+            (q.note ? '<p class="fine" style="margin-top:6px">' + esc(q.note) + "</p>" : "") +
+            '<div class="options" role="radiogroup" aria-label="' + esc(q.title) + '">' +
+              q.options.map(function (o) {
+                return '<button class="option" type="button" role="radio" aria-checked="' +
+                  (cur === o.id ? "true" : "false") + '" data-opt="' + esc(o.id) + '">' +
+                  '<span class="option-icon" aria-hidden="true">' + esc(o.icon) + "</span>" +
+                  '<span class="option-body"><span class="option-label">' + esc(o.label) + "</span></span>" +
+                  '<span class="option-check" aria-hidden="true">✓</span></button>';
+              }).join("") +
+            "</div></div>";
+        }).join("") +
+
+        '<div class="sticky-foot">' +
+          '<button class="btn" id="calc">算出結論</button>' +
+          '<p class="fine" style="text-align:center;margin-top:8px" id="left"></p></div>' +
+      "</div>"
+    );
+
+    var calc = $("#calc"), left = $("#left");
+    function sync() {
+      var done = qs.filter(function (q) { return state.decideAnswers[q.id]; }).length;
+      calc.disabled = done < qs.length;
+      left.textContent = done < qs.length ? "還有 " + (qs.length - done) + " 題沒答" : "八題都答完了";
+    }
+    sync();
+
+    $$("[data-q]").forEach(function (box) {
+      var qid = box.getAttribute("data-q");
+      Array.prototype.forEach.call(box.querySelectorAll(".option"), function (btn) {
+        btn.addEventListener("click", function () {
+          state.decideAnswers[qid] = btn.getAttribute("data-opt");
+          Array.prototype.forEach.call(box.querySelectorAll(".option"), function (b) {
+            b.setAttribute("aria-checked", b === btn ? "true" : "false");
+          });
+          sync();
+        });
+      });
+    });
+
+    $("#stk").addEventListener("input", function () { state.stock = $("#stk").value.trim(); });
+
+    // 名單上的標的抓一次報價
+    (function () {
+      var S = window.SCREEN || {};
+      var sc = (S.screens || {})[state.result.path.id];
+      var items = (sc && sc.items) || [];
+      var byCode = {};
+      items.forEach(function (r) { byCode[r.code] = r; });
+      hydrateQuotes(items.map(function (r) { return r.code; }), byCode);
+    })();
+
+    $$("[data-code]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var v = btn.getAttribute("data-code") + " " + btn.getAttribute("data-name");
+        state.stock = v;
+        $("#stk").value = v;
+        $$("[data-code]").forEach(function (b) { b.classList.toggle("on", b === btn); });
+        T.track(N.watchlistPicked, { code: btn.getAttribute("data-code") });
+      });
+    });
+
+    calc.addEventListener("click", function () {
+      state.decision = DECIDE.evaluate(state.decideAnswers, state.result);
+      T.track(N.decideCompleted, { verdict: state.decision.verdict.id, score: state.decision.score });
+      state.flow = "decideResult";
+      render();
+    });
+  }
+
+  /* 觀察名單：把網站上寫的篩選條件，實際套在證交所公開資料上的結果。
+     這是清單不是推薦——每一檔仍然要跑完下面八題。 */
+  function watchlistHTML() {
+    var S = window.SCREEN || {};
+    var meta = S.meta || {};
+    var sc = (S.screens || {})[state.result.path.id];
+
+    // 資料還沒抓到就老實說，不要生一份假名單出來
+    if (!meta.updated || !sc) {
+      return '<div class="card">' +
+        '<p class="eyebrow">觀察名單</p>' +
+        '<h3 class="h2">資料還沒抓</h3>' +
+        '<p class="fine" style="margin-top:8px">名單由 GitHub Action 每個交易日收盤後，' +
+          "從證交所與櫃買中心的公開 OpenAPI 抓取後產生。第一次執行之前這裡是空的——" +
+          "與其顯示一份編出來的名單，不如告訴你還沒有。</p>" +
+          '<p class="fine" style="margin-top:8px">你還是可以直接在上面輸入代號，' +
+          "自己跑完下面八題。</p>" +
+      "</div>";
+    }
+
+    var items = sc.items || [];
+    return '<div class="card">' +
+      '<p class="eyebrow">觀察名單 · 資料日期 ' + esc(meta.updated) + "</p>" +
+      '<h3 class="h2">' + (selfUse() ? "今天通過你設的條件的標的" : "符合這條路徑條件的標的") + "</h3>" +
+      '<p class="fine" style="margin-top:8px">' +
+        (selfUse()
+          ? "條件寫在 scripts/fetch_screen.py，想調就去改。通過條件不等於該買——" +
+            "點一檔帶入上面的欄位，還是要跑完八題。"
+          : "<b>這是篩選結果，不是推薦。</b>它只代表這幾檔通過了下面列出的條件，" +
+            "不代表適合你買。點一檔帶入上面的欄位，再用八題判斷一次。") +
+      "</p>" +
+
+      (sc.criteria && sc.criteria.length
+        ? '<p class="week-label">篩選條件</p><ul class="week-list">' +
+          sc.criteria.map(function (c) { return "<li>" + esc(c) + "</li>"; }).join("") + "</ul>"
+        : "") +
+
+      (items.length
+        ? '<div class="wl">' + items.map(function (r) {
+            return '<button class="wl-row" type="button" data-code="' + esc(r.code) + '" ' +
+              'data-name="' + esc(r.name) + '">' +
+              '<span class="wl-code tnum">' + esc(r.code) + "</span>" +
+              '<span class="wl-name">' + esc(r.name) + "</span>" +
+              '<span class="wl-nums tnum" data-q-slot="' + esc(r.code) + '">' +
+                (Q.enabled() ? "…" :
+                  (r["yield"] != null ? "殖利率 " + r["yield"].toFixed(2) + "%　" : "") +
+                  (r.pe != null ? "本益比 " + r.pe.toFixed(1) : "")) +
+              "</span></button>" +
+              '<div data-q-range="' + esc(r.code) + '"></div>';
+          }).join("") + "</div>"
+        : '<p class="fine" style="margin-top:12px">這次篩選沒有標的通過條件。' +
+          "條件寫死在 scripts/fetch_screen.py，可以自己調。</p>") +
+
+      (sc.manual && sc.manual.length
+        ? '<p class="week-label">API 查不到、要自己查的</p><ul class="week-list">' +
+          sc.manual.map(function (m) { return "<li>" + esc(m) + "</li>"; }).join("") + "</ul>"
+        : "") +
+
+      '<p class="fine" style="margin-top:14px">資料來源：' +
+        esc((meta.sources || []).join("、") || "證交所／櫃買中心 OpenAPI") + "</p>" +
+      (Q.enabled()
+        ? '<p class="fine">報價經由你自己部署的代理取得證交所盤中資訊，' +
+          "有數秒到十幾秒落差，<b>不是逐筆即時成交價</b>。" +
+          (Q.marketOpen() ? "" : "現在非交易時段，顯示的是最後一次收盤資訊。") + "</p>"
+        : '<p class="fine">想看盤中報價的話，把 Cloudflare Worker 部署起來，' +
+          "網址填進 assets/config.js 的 quoteProxy。做法寫在 worker/quote-proxy.js 開頭。</p>") +
+    "</div>";
+  }
+
+  /* ---- 該不該買：裁決 -------------------------------------------------- */
+  function renderDecideResult() {
+    var d = state.decision;
+    var label = state.stock || "這一檔";
+
+    paint(
+      '<div class="stack-lg">' +
+        "<div>" +
+          '<p class="eyebrow">' + esc(label) + " · 你的判斷結果</p>" +
+          '<h2 class="h1 verdict-' + d.verdict.tone + '" data-focus tabindex="-1">' +
+            esc(d.verdict.label) + "</h2>" +
+          '<p class="lede">' + esc(d.verdict.lead) + "</p>" +
+        "</div>" +
+
+        '<div class="card">' +
+          '<h3 class="h2">這筆交易的完備度</h3>' +
+          gaugeHTML(d.score, ["前提不成立", "還缺功課", "大致可行", "條件齊備"]) +
+          '<p class="fine" style="margin-top:12px">這個分數衡量的是<b>你的準備</b>，' +
+            "不是這檔股票的好壞。同一檔股票，不同人算出來會不一樣。</p>" +
+        "</div>" +
+
+        (d.hardFlags.length
+          ? '<div class="card flag-hard"><h3 class="h2">這幾件事必須先解決</h3>' +
+            d.hardFlags.map(function (f) {
+              return '<div class="flag"><b>' + esc(f.title) + "</b><p>" + esc(f.why) + "</p></div>";
+            }).join("") + "</div>"
+          : "") +
+
+        (d.softFlags.length
+          ? '<div class="card flag-soft"><h3 class="h2">還不夠紮實的地方</h3>' +
+            d.softFlags.map(function (f) {
+              return '<div class="flag"><b>' + esc(f.title) + "</b><p>" + esc(f.why) + "</p></div>";
+            }).join("") + "</div>"
+          : "") +
+
+        '<div class="card">' +
+          '<h3 class="h2">具體要怎麼做</h3>' +
+          '<ol class="path-steps" style="margin-top:12px">' +
+            d.steps.map(function (st) {
+              return "<li><span><b>" + esc(st.head) + "</b><br>" + esc(st.body) + "</span></li>";
+            }).join("") +
+          "</ol>" +
+        "</div>" +
+
+        screenHTML() +
+
+        '<div class="card no-print">' +
+          '<h3 class="h2">把判斷存起來</h3>' +
+          '<p class="fine">下載的檔案會包含完整週計畫，加上這份判斷紀錄。' +
+            "下次再考慮同一檔的時候，可以拿出來對照。</p>" +
+          '<button class="btn btn-ghost" id="dl2" style="margin-top:14px">下載計畫＋判斷紀錄</button>' +
+        "</div>" +
+
+        '<div class="sticky-foot">' +
+          (d.verdict.id === "stop"
+            ? '<button class="btn" id="redo">改答案，重算一次</button>'
+            : '<button class="btn" id="tolist">把這些規則存成檢查表</button>' +
+              '<button class="btn btn-ghost" id="redo" style="margin-top:10px">改答案，重算一次</button>') +
+          '<button class="btn btn-ghost" id="next" style="margin-top:10px">' +
+            "把計畫和判斷寄給我</button></div>" +
+      "</div>"
+    );
+
+    $("#dl2").addEventListener("click", function () {
+      if (!state.studyPlan) state.studyPlan = BUILDER.build(state.result, state.answers);
+      downloadPlan(state.studyPlan);
+    });
+
+    $("#redo").addEventListener("click", function () { state.flow = "decide"; render(); });
     $("#next").addEventListener("click", function () { state.flow = "email"; render(); });
+    var tolist = $("#tolist");
+    if (tolist) tolist.addEventListener("click", function () { state.flow = "ruleForm"; render(); });
+  }
+
+  /* ---- 寫下規則 -------------------------------------------------------- */
+  function renderRuleForm() {
+    var d = state.decision;
+    var label = state.stock || "這一檔";
+
+    // 先用決策結果填建議值，使用者改過的才是他自己的規則
+    var seed = {
+      amount: d.verdict.id === "small" ? "原本打算的一半" : "",
+      batches: "分三批，第一批先進" + (d.verdict.id === "small" ? "三分之一" : ""),
+      stop: "",
+      review: "下一次財報或月營收公布時"
+    };
+
+    paint(
+      '<div class="stack-lg">' +
+        "<div>" +
+          '<p class="eyebrow">' + esc(label) + "</p>" +
+          '<h2 class="h1" data-focus tabindex="-1">把規則寫下來</h2>' +
+          '<p class="lede">寫下來的規則，才擋得住當下的情緒。四欄都可以留空，' +
+            "但留空的那欄，之後就沒有東西可以擋你。</p>" +
+        "</div>" +
+
+        '<div class="card">' +
+          '<div class="field"><label for="r-amount">這筆最多投入多少</label>' +
+            '<input class="input" id="r-amount" type="text" maxlength="60" ' +
+              'placeholder="例如 NT$30,000，或「不超過總投資的一成」"></div>' +
+          '<div class="field"><label for="r-batches">分批計畫</label>' +
+            '<input class="input" id="r-batches" type="text" maxlength="80" ' +
+              'placeholder="' + esc(seed.batches) + '" value="' + esc(seed.batches) + '"></div>' +
+          '<div class="field"><label for="r-stop">出場條件</label>' +
+            '<input class="input" id="r-stop" type="text" maxlength="80" ' +
+              'placeholder="價格跌破某個價位，或當初買的理由消失"></div>' +
+          '<div class="field"><label for="r-stopprice">停損價（選填）</label>' +
+            '<input class="input" id="r-stopprice" type="number" inputmode="decimal" ' +
+              'step="0.01" min="0" placeholder="例如 180">' +
+            '<p class="fine" style="margin-top:6px">填了數字，之後打開檢查表就會' +
+              "直接跟現價比對。定期定額可以留空。</p></div>" +
+          '<div class="field"><label for="r-review">什麼時候回來檢查</label>' +
+            '<input class="input" id="r-review" type="text" maxlength="60" ' +
+              'value="' + esc(seed.review) + '"></div>' +
+        "</div>" +
+
+        '<div class="notice">這些規則只存在<b>這台裝置的瀏覽器</b>裡，' +
+          "沒有帳號、沒有後端、不會同步。清掉瀏覽器資料就會不見——所以記得匯出一份。</div>" +
+
+        '<div class="sticky-foot"><button class="btn" id="save">存起來</button></div>' +
+      "</div>"
+    );
+
+    $("#save").addEventListener("click", function () {
+      var item = LIST.makeItem({
+        stock: state.stock,
+        pathId: state.result.path.id,
+        decision: d,
+        steps: d.steps,
+        rules: {
+          amount: $("#r-amount").value.trim(),
+          batches: $("#r-batches").value.trim(),
+          stop: $("#r-stop").value.trim(),
+          stopPrice: $("#r-stopprice").value.trim() === ""
+            ? null : Number($("#r-stopprice").value),
+          review: $("#r-review").value.trim()
+        }
+      });
+      LIST.add(item);
+      T.track(N.checklistSaved, { verdict: d.verdict.id });
+      state.flow = "checklist";
+      render();
+    });
+  }
+
+  /* ---- 檢查表清單 ------------------------------------------------------ */
+  function renderChecklist() {
+    var items = LIST.all();
+
+    if (!items.length) {
+      paint(
+        '<div class="stack-lg">' +
+          '<h2 class="h1" data-focus tabindex="-1">還沒有檢查表</h2>' +
+          '<p class="lede">跑完「該不該買」之後，可以把規則存成一張檢查表，下次打開還在。</p>' +
+          '<button class="btn btn-ghost" id="home">回首頁</button>' +
+        "</div>"
+      );
+      $("#home").addEventListener("click", function () { state.flow = "intro"; render(); });
+      return;
+    }
+
+    paint(
+      '<div class="stack-lg">' +
+        "<div>" +
+          '<p class="eyebrow">存在這台裝置上</p>' +
+          '<h2 class="h1" data-focus tabindex="-1">我的進場檢查表</h2>' +
+          '<p class="lede">規則是在冷靜的時候訂的。要改可以，但在沒有部位壓力的時候改，' +
+            "不要在虧損的當下改。</p>" +
+        "</div>" +
+
+        items.map(function (it) {
+          var st = LIST.STATUS[it.status] || LIST.STATUS.planning;
+          return '<div class="card cl" data-id="' + esc(it.id) + '">' +
+            '<div class="cl-head">' +
+              "<div><b>" + esc(it.stock) + "</b>" +
+              '<div class="fine">' + esc(it.createdAt) +
+                (it.verdictLabel ? "　·　" + esc(it.verdictLabel) : "") + "</div></div>" +
+              '<span class="badge badge-' + st.tone + '">' + esc(st.label) + "</span>" +
+            "</div>" +
+
+            '<p class="week-label">我寫下的規則</p>' +
+            '<ul class="week-list">' +
+              '<li><b>最多投入</b>　' + esc(it.rules.amount || "（沒寫）") + "</li>" +
+              '<li><b>分批計畫</b>　' + esc(it.rules.batches || "（沒寫）") + "</li>" +
+              '<li><b>出場條件</b>　' + esc(it.rules.stop || "（沒寫）") +
+                (it.rules.stopPrice != null
+                  ? "　（停損價 " + it.rules.stopPrice + "）" : "") + "</li>" +
+              '<li><b>回來檢查</b>　' + esc(it.rules.review || "（沒寫）") + "</li>" +
+            "</ul>" +
+
+            (it.checks && it.checks.length
+              ? '<p class="week-label">執行進度</p><div class="cl-checks">' +
+                it.checks.map(function (c, i) {
+                  return '<button class="cl-check" type="button" role="checkbox" aria-checked="' +
+                    (c.done ? "true" : "false") + '" data-check="' + i + '">' +
+                    '<span class="option-check" aria-hidden="true">✓</span>' +
+                    "<span>" + esc(c.head) + "</span></button>";
+                }).join("") + "</div>"
+              : "") +
+
+            (it.rules.stopPrice != null && LIST.codeOf(it.stock)
+              ? '<div data-stop="' + esc(it.id) + '"></div>' : "") +
+
+            '<div class="cl-foot">' +
+              '<select class="cl-status" aria-label="狀態">' +
+                Object.keys(LIST.STATUS).map(function (k) {
+                  return '<option value="' + k + '"' + (k === it.status ? " selected" : "") +
+                    ">" + esc(LIST.STATUS[k].label) + "</option>";
+                }).join("") +
+              "</select>" +
+              '<button class="cl-del" type="button">刪掉這張</button>' +
+            "</div>" +
+          "</div>";
+        }).join("") +
+
+        '<div class="card">' +
+          '<h3 class="h2">帶走一份</h3>' +
+          '<p class="fine">清掉瀏覽器資料這些就沒了。匯出一份 Markdown 放在筆記軟體裡比較保險。</p>' +
+          '<button class="btn btn-ghost" id="dl3" style="margin-top:14px">下載檢查表</button>' +
+        "</div>" +
+
+        '<div class="sticky-foot"><button class="btn btn-ghost" id="home">回首頁</button></div>' +
+      "</div>"
+    );
+
+    $$(".cl").forEach(function (card) {
+      var id = card.getAttribute("data-id");
+
+      Array.prototype.forEach.call(card.querySelectorAll("[data-check]"), function (btn) {
+        btn.addEventListener("click", function () {
+          var idx = Number(btn.getAttribute("data-check"));
+          var cur = LIST.all().filter(function (x) { return x.id === id; })[0];
+          if (!cur) return;
+          cur.checks[idx].done = !cur.checks[idx].done;
+          LIST.update(id, { checks: cur.checks });
+          btn.setAttribute("aria-checked", cur.checks[idx].done ? "true" : "false");
+        });
+      });
+
+      card.querySelector(".cl-status").addEventListener("change", function (e) {
+        LIST.update(id, { status: e.target.value });
+        render();
+      });
+
+      card.querySelector(".cl-del").addEventListener("click", function () {
+        LIST.remove(id);
+        T.track(N.checklistRemoved, {});
+        render();
+      });
+    });
+
+    $("#dl3").addEventListener("click", function () {
+      var md = LIST.toMarkdown(LIST.all());
+      var blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = "tw-stock-checklist.md";
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function () {
+        if (a.parentNode) a.parentNode.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 1000);
+      T.track(N.checklistDownloaded, { count: LIST.all().length });
+    });
+
+    $("#home").addEventListener("click", function () { state.flow = "intro"; render(); });
+
+    // 有填停損價的，抓現價比對一次
+    var watch = items.filter(function (it) {
+      return it.rules.stopPrice != null && LIST.codeOf(it.stock);
+    });
+    if (Q.enabled() && watch.length) {
+      Q.fetch(watch.map(function (it) { return LIST.codeOf(it.stock); })).then(function (map) {
+        watch.forEach(function (it) {
+          var q = map[LIST.codeOf(it.stock)];
+          var slot = document.querySelector('[data-stop="' + it.id + '"]');
+          if (!slot || !q || q.price == null) return;
+
+          var stop = it.rules.stopPrice;
+          if (q.price <= stop) {
+            slot.innerHTML = '<div class="stop-hit">現價 ' + q.price.toFixed(2) +
+              "，已經跌破你設的停損價 " + stop + "。<br>" +
+              "當初寫下這條規則的時候你是冷靜的。要不要執行是你的決定，" +
+              "但如果決定不執行，把新的理由也寫下來。</div>";
+          } else {
+            var gap = ((q.price - stop) / q.price) * 100;
+            slot.innerHTML = '<div class="stop-ok">現價 ' + q.price.toFixed(2) +
+              "，距離停損價 " + stop + " 還有 " + gap.toFixed(1) + "%。" +
+              (q.basis !== "成交" ? "（" + esc(q.basis) + "）" : "") + "</div>";
+          }
+        });
+      });
+    }
+  }
+
+  /* 觀察名單怎麼自己篩——「推薦個股」的誠實版本 */
+  function screenHTML() {
+    var sc = DECIDE.SCREENS[state.result.path.id];
+    if (!sc) return "";
+    return '<div class="card">' +
+      '<p class="eyebrow">與其等明牌</p>' +
+      '<h3 class="h2">' + esc(sc.title) + "</h3>" +
+      '<p class="fine" style="margin-top:6px"><b>去哪裡查</b>　' + esc(sc.where) + "</p>" +
+      '<ul class="week-list" style="margin-top:12px">' +
+        sc.rules.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") +
+      "</ul>" +
+      '<p class="fine" style="margin-top:14px">這些條件不會直接給你一檔股票，但會把「可以考慮的」和' +
+        "「不用考慮的」分開。剩下的名單，再一檔一檔用上面那八題跑過。</p>" +
+    "</div>";
   }
 
   /* ---- Email 收集 ------------------------------------------------------ */
@@ -629,11 +1363,15 @@
           esc(PLANS.filter(function (p) { return p.id === state.plan; })[0].name) + "</p>" +
         '<div class="notice">這是原型，沒有真的扣款、也沒有寄出任何信件。' +
           "上面所有數字都來自你剛才的作答，重做一次換不同答案，結果就會不一樣。</div>" +
-        '<button class="btn btn-ghost" id="again">重做一次</button>' +
+        '<button class="btn" id="toplan">回我的完整計畫</button>' +
+        '<button class="btn btn-ghost" id="again" style="margin-top:10px">重做一次</button>' +
       "</div>"
     );
+    $("#toplan").addEventListener("click", function () { state.flow = "planDetail"; render(); });
     $("#again").addEventListener("click", function () {
-      state = { flow: "intro", stepIndex: 0, answers: {}, result: null, email: "", plan: "p12" };
+      state = { flow: "intro", stepIndex: 0, answers: {}, result: null,
+                studyPlan: null, name: "", stock: "", decideAnswers: {},
+                decision: null, email: "", plan: "p12" };
       render();
     });
   }
@@ -645,6 +1383,12 @@
     if (state.flow === "intro") return renderIntro();
     if (state.flow === "analyzing") return renderAnalyzing();
     if (state.flow === "plan") return renderPlan();
+    if (state.flow === "planDetail") return renderPlanDetail();
+    if (state.flow === "naming") return renderNaming();
+    if (state.flow === "decide") return renderDecide();
+    if (state.flow === "decideResult") return renderDecideResult();
+    if (state.flow === "ruleForm") return renderRuleForm();
+    if (state.flow === "checklist") return renderChecklist();
     if (state.flow === "email") return renderEmail();
     if (state.flow === "pricing") return renderPricing();
     if (state.flow === "done") return renderDone();
@@ -655,6 +1399,16 @@
     if (step.q.type === "multi") return renderMulti(step.q);
     if (step.q.type === "slider") return renderSlider(step.q);
   }
+
+  /* 頁尾免責：公開發布時要完整，自用時縮短——但「不保證結果」那句不拿掉。 */
+  (function () {
+    if (!selfUse()) return;
+    var demo = document.querySelector(".site-foot .demo-note");
+    var dis = document.querySelector(".site-foot .disclaimer");
+    if (demo) demo.textContent = "自用工具原型：沒有後端、沒有金流、沒有追蹤碼。方案頁的價格是版面示範。";
+    if (dis) dis.textContent = "這是給自己用的判斷輔助，不保證任何投資結果。" +
+      "稅率、費率與制度規定請以主管機關當年度公告為準。";
+  })();
 
   render();
 })();
