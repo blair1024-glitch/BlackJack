@@ -6,7 +6,7 @@
 
   var QUIZ = window.QUIZ, SCORING = window.SCORING, CHART = window.CHART;
   var BUILDER = window.PLAN_BUILDER, DECIDE = window.DECISION;
-  var LIST = window.CHECKLIST, Q = window.QUOTE;
+  var LIST = window.CHECKLIST, Q = window.QUOTE, AN = window.ANALYSIS;
   var T = window.ANALYTICS, N = T.NAMES;
 
   var app = document.getElementById("app");
@@ -718,6 +718,8 @@
           '<div id="stk-ctx"></div></div>' +
         "</div>" +
 
+        '<div id="stk-profile"></div>' +
+
         watchlistHTML() +
 
         qs.map(function (q, i) {
@@ -770,10 +772,13 @@
        打字打到一半就發請求太吵，所以延遲 500ms。 */
     var ctx = $("#stk-ctx"), posHint = $("#pos-hint"), typing = null, lastCode = null;
 
+    var profileSlot = $("#stk-profile");
+
     function clearContext() {
       lastCode = null;
       if (ctx) ctx.innerHTML = "";
       if (posHint) posHint.innerHTML = "";
+      if (profileSlot) profileSlot.innerHTML = "";
     }
 
     function showContext(code) {
@@ -843,6 +848,8 @@
           "<br>這是資料，不是答案——還是你自己選。</div>";
       }
 
+      if (profileSlot) profileSlot.innerHTML = profileHTML(code);
+
       paintWith(null);
       if (Q.enabled()) {
         Q.fetch([code]).then(function (map) {
@@ -903,6 +910,71 @@
       }
     }
     return null;
+  }
+
+  /* 同一條路徑名單裡的所有標的，用來算這檔排第幾 */
+  function peersFor(code) {
+    var screens = (window.SCREEN || {}).screens || {};
+    for (var k in screens) {
+      if (!Object.prototype.hasOwnProperty.call(screens, k)) continue;
+      var items = screens[k].items || [];
+      for (var i = 0; i < items.length; i++) {
+        if (items[i].code === code) return items;
+      }
+    }
+    return [];
+  }
+
+  /* 體質速讀：從本益比與股價淨值比推出股東權益報酬率，再說明數字的意思。
+     全部是推導，不是預測——每一句都指得回它從哪個數字來。 */
+  function profileHTML(code) {
+    var row = screenRowFor(code);
+    if (!row) return "";
+    var p = AN.profile(row, peersFor(code));
+
+    if (!p.ok) {
+      return '<div class="card"><p class="eyebrow">體質速讀</p>' +
+        '<p class="fine" style="margin-top:8px">' + esc(p.reason) + "</p></div>";
+    }
+
+    function rank(r, label) {
+      if (!r) return "";
+      return '<li>' + esc(label) + " 在這份名單 <b>" + r.rank + " / " + r.total + "</b></li>";
+    }
+
+    return '<div class="card">' +
+      '<p class="eyebrow">體質速讀 · ' + esc(code) + (row.name ? " " + esc(row.name) : "") + "</p>" +
+
+      '<div class="roe-box">' +
+        '<div class="roe-formula tnum">股價淨值比 ' + p.pb.toFixed(2) +
+          " ÷ 本益比 " + p.pe.toFixed(2) + " =</div>" +
+        '<div class="roe-value tnum">' + p.roe.toFixed(1) + "%</div>" +
+        '<div class="fine">推算的股東權益報酬率（ROE）</div>' +
+      "</div>" +
+
+      '<h3 class="h2" style="margin-top:18px">' + esc(p.quadrant.title) + "</h3>" +
+      '<p class="lede" style="margin-top:8px">' + esc(p.quadrant.why) + "</p>" +
+      '<div class="ask-box"><b>那你該去查什麼</b><br>' + esc(p.quadrant.ask) + "</div>" +
+
+      (p.premium
+        ? '<div class="note-box"><b>' + esc(p.premium.head) + "</b><br>" +
+          esc(p.premium.body) + "</div>"
+        : "") +
+
+      (p.payout
+        ? '<div class="note-box"><b>' + esc(p.payout.head) + "</b><br>" +
+          esc(p.payout.body) + "</div>"
+        : "") +
+
+      '<p class="week-label">相對位置</p><ul class="week-list">' +
+        rank(p.ranks.roe, "股東權益報酬率") +
+        rank(p.ranks.pe, "本益比（由低到高）") +
+        rank(p.ranks.yield, "殖利率") +
+      "</ul>" +
+
+      '<p class="fine" style="margin-top:16px">' +
+        p.caveat.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>") + "</p>" +
+    "</div>";
   }
 
   /* 現價落在累積區間的百分位。資料不足回 null，不硬算。 */

@@ -337,10 +337,12 @@ async function run(vp) {
                             { code: "00878", name: "國泰永續高股息", pe: null, yield: 5.6 }] },
         cashflow: { criteria: ["殖利率 ≥ 4%", "本益比 0～20"], manual: ["連續配息年數要自己查"],
                     // high/low/histDays 是 Action 累積出來的收盤價區間
-                    items: [{ code: "2884", name: "玉山金", pe: 12.3, yield: 5.4,
-                              close: 28.5, high: 32.5, low: 24.1, histDays: 250 }] },
+                    items: [{ code: "2884", name: "玉山金", pe: 12.3, pb: 1.3, yield: 5.4,
+                              close: 28.5, high: 32.5, low: 24.1, histDays: 250 },
+                            { code: "2891", name: "中信金", pe: 11.8, pb: 1.1, yield: 5.1, close: 41.2 },
+                            { code: "1101", name: "台泥",   pe: 15.2, pb: 0.9, yield: 6.1, close: 33.0 }] },
         research: { criteria: ["本益比 0～25"], manual: ["三率趨勢要自己查"],
-                    items: [{ code: "2330", name: "台積電", pe: 21.5, yield: 1.8 }] },
+                    items: [{ code: "2330", name: "台積電", pe: 21.5, pb: 5.5, yield: 1.8, close: 2395 }] },
         riskFirst: { criteria: [], manual: ["先把部位大小定下來"], items: [] }
       }
     };
@@ -395,6 +397,27 @@ async function run(vp) {
   ok(/本益比 12\.30/.test(ctx1), "帶出本益比");
   ok(/殖利率 5\.40%/.test(ctx1), "帶出殖利率");
 
+  // ---- 體質速讀：從兩個公開數字推出第三個 ----
+  await page.waitForSelector(".roe-value", { timeout: 8000 });
+  const prof = await page.locator("#stk-profile").textContent();
+  ok(/10\.6%/.test(prof), "推算出股東權益報酬率（1.3 ÷ 12.3 = 10.6%）");
+  ok(/股價淨值比 1\.30 ÷ 本益比 12\.30/.test(prof), "把算式寫出來，不是憑空給數字");
+  ok(/那你該去查什麼/.test(prof), "不只下標籤，給出下一步該查什麼");
+  ok(/相對位置/.test(prof) && /這份名單/.test(prof), "給出在同名單裡的排名");
+  ok(/近四季獲利/.test(prof), "標明推算的是過去的報酬率");
+  ok(!/建議買進|該買|值得買/.test(prof), "沒有買賣指令");
+
+  // 換成別條路徑的標的，判讀要跟著換
+  await page.fill("#stk", "2330");
+  await page.waitForTimeout(900);
+  const prof2 = await page.locator("#stk-profile").textContent();
+  ok(/25\.6%/.test(prof2), "換標的重新推算（5.5 ÷ 21.5 = 25.6%）");
+  ok(/帳面溢價偏高/.test(prof2), "股價淨值比 5.5 標出高溢價");
+  ok(prof2 !== prof, "不同標的給出不同判讀，不是罐頭文字");
+
+  await page.fill("#stk", "2884");
+  await page.waitForTimeout(900);
+
   // 第四題的提示：給資料但不幫使用者選
   const hint = await page.locator(".pos-hint").textContent();
   ok(/現價約在/.test(hint), `第四題帶出區間位置（${hint.trim().slice(0, 40)}…）`);
@@ -418,6 +441,8 @@ async function run(vp) {
   ok(/9999/.test(ctxNone), "名單外的代號仍然顯示代號");
   ok(/查不到|不在目前的觀察名單裡/.test(ctxNone),
      "名單外的代號誠實說沒有資料，不編一個出來");
+  ok((await page.locator("#stk-profile").textContent()).trim() === "",
+     "查不到資料時不硬生一份體質速讀");
 
   // 打一半不該亂查
   await page.fill("#stk", "23");
