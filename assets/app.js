@@ -709,11 +709,13 @@
             "它做的是把判斷的步驟攤開，讓你自己得出結論。</div>") +
 
         '<div class="card">' +
-          '<div class="field"><label for="stk">你在考慮哪一檔？</label>' +
-          '<input class="input" id="stk" type="text" maxlength="24" ' +
-            'placeholder="例如 0050 或 台積電" value="' + esc(state.stock) + '">' +
-          '<p class="fine" style="margin-top:6px">只是拿來標記這次判斷。' +
-            "下面的清單可以直接點選帶入。</p></div>" +
+          '<div class="field"><label for="stk">這次判斷是為哪一檔做的？</label>' +
+          '<input class="input" id="stk" type="text" maxlength="24" inputmode="numeric" ' +
+            'placeholder="輸入代號，例如 0050" value="' + esc(state.stock) + '">' +
+          '<p class="fine" style="margin-top:6px">輸入代號會幫你帶出現價與估值。' +
+            "但要提醒：<b>下面八題問的是你的處境，不是這檔股票的價格</b>——" +
+            "結論算的是你準備好了沒，不是這個價位划不划算。</p>" +
+          '<div id="stk-ctx"></div></div>' +
         "</div>" +
 
         watchlistHTML() +
@@ -724,6 +726,7 @@
             '<p class="week-n">問題 ' + (i + 1) + " / " + qs.length + "</p>" +
             '<h3 class="h2">' + esc(q.title) + "</h3>" +
             (q.note ? '<p class="fine" style="margin-top:6px">' + esc(q.note) + "</p>" : "") +
+            (q.id === "position" ? '<div id="pos-hint"></div>' : "") +
             '<div class="options" role="radiogroup" aria-label="' + esc(q.title) + '">' +
               q.options.map(function (o) {
                 return '<button class="option" type="button" role="radio" aria-checked="' +
@@ -762,7 +765,102 @@
       });
     });
 
-    $("#stk").addEventListener("input", function () { state.stock = $("#stk").value.trim(); });
+    /* 輸入代號 → 帶出現價與估值。
+       這個欄位不影響任何計算，只是把使用者本來要自己去查的資料端到面前。
+       打字打到一半就發請求太吵，所以延遲 500ms。 */
+    var ctx = $("#stk-ctx"), posHint = $("#pos-hint"), typing = null, lastCode = null;
+
+    function clearContext() {
+      lastCode = null;
+      if (ctx) ctx.innerHTML = "";
+      if (posHint) posHint.innerHTML = "";
+    }
+
+    function showContext(code) {
+      if (code === lastCode) return;
+      lastCode = code;
+      var row = screenRowFor(code);
+
+      function paintWith(q) {
+        var name = (q && q.name) || (row && row.name) || "";
+        var price = q && q.price != null ? q.price : (row && row.close);
+        var pct = rangePct(row, price);
+
+        if (!name && price == null) {
+          ctx.innerHTML = '<div class="stk-ctx"><b>' + esc(code) + "</b>　" +
+            '<span class="fine">查不到這個代號的資料。可能是代號打錯，' +
+            "或它不在證交所的公開清單裡。不影響下面八題。</span></div>";
+          if (posHint) posHint.innerHTML = "";
+          return;
+        }
+
+        var bits = [];
+        if (row && row.pe != null) bits.push("本益比 " + row.pe.toFixed(2));
+        if (row && row["yield"] != null) bits.push("殖利率 " + row["yield"].toFixed(2) + "%");
+        if (row && row.pb != null) bits.push("股價淨值比 " + row.pb.toFixed(2));
+
+        // 有盤中報價就用報價，沒有就退回名單資料裡的收盤價——
+        // 沒部署 Worker 的人一樣看得到價格，只是標明是收盤而不是現價。
+        var priceHTML = q
+          ? quoteHTML(q)
+          : (row && row.close != null
+              ? '<span class="q q-flat">收盤 <b>' + row.close.toFixed(2) + "</b></span>"
+              : "");
+
+        ctx.innerHTML = '<div class="stk-ctx">' +
+          '<div class="stk-ctx-head"><b>' + esc(code) + "</b>" +
+            (name ? " " + esc(name) : "") +
+            (priceHTML ? '<span class="stk-ctx-q">' + priceHTML + "</span>" : "") + "</div>" +
+          (bits.length
+            ? '<div class="fine tnum">' + esc(bits.join("　")) + "</div>"
+            : '<div class="fine">' +
+              (row ? "這檔是 ETF，公開 API 沒有本益比與殖利率" :
+                     "不在目前的觀察名單裡，所以沒有估值資料") + "</div>") +
+          (q ? "" : '<div class="fine">' +
+            (row && row.close != null
+              ? "顯示的是資料日期當天的收盤價。" +
+                (Q.enabled() ? "盤中報價抓取中或抓不到。" : "要看盤中報價需設定報價代理。")
+              : (Q.enabled() ? "報價抓取中或抓不到，不影響作答。"
+                             : "沒有設定報價代理，所以沒有現價。")) + "</div>") +
+        "</div>";
+
+        // 第四題的提示：只講事實與資料基礎，不幫使用者選
+        if (!posHint) return;
+        if (pct == null) {
+          posHint.innerHTML = row
+            ? '<div class="pos-hint">還沒有足夠的收盤價歷史可以判斷區間位置' +
+              (row.histDays ? "（目前累積 " + row.histDays + " 個交易日）" : "") +
+              "，這題請自己查。</div>"
+            : "";
+          return;
+        }
+        var basis = row.histDays >= 240
+          ? "近一年區間" : "累積 " + row.histDays + " 個交易日的區間";
+        posHint.innerHTML = '<div class="pos-hint">' +
+          "依" + esc(basis) + "：低 " + row.low.toFixed(2) + "　高 " + row.high.toFixed(2) +
+          "　<b>現價約在 " + pct + "%</b>" +
+          (row.histDays >= 240 ? "" : "。天數不足一年，只能當參考") + "。" +
+          "<br>這是資料，不是答案——還是你自己選。</div>";
+      }
+
+      paintWith(null);
+      if (Q.enabled()) {
+        Q.fetch([code]).then(function (map) {
+          if (lastCode === code) paintWith(map[code] || null);
+        });
+      }
+    }
+
+    function syncStock() {
+      state.stock = $("#stk").value.trim();
+      var code = LIST.codeOf(state.stock);
+      if (typing) clearTimeout(typing);
+      if (!code) { clearContext(); return; }
+      typing = setTimeout(function () { showContext(code); }, 500);
+    }
+
+    $("#stk").addEventListener("input", syncStock);
+    if (LIST.codeOf(state.stock)) showContext(LIST.codeOf(state.stock));
 
     // 名單上的標的抓一次報價
     (function () {
@@ -780,6 +878,7 @@
         state.stock = v;
         $("#stk").value = v;
         $$("[data-code]").forEach(function (b) { b.classList.toggle("on", b === btn); });
+        showContext(btn.getAttribute("data-code"));
         T.track(N.watchlistPicked, { code: btn.getAttribute("data-code") });
       });
     });
@@ -790,6 +889,28 @@
       state.flow = "decideResult";
       render();
     });
+  }
+
+  /* 在名單資料裡找某一檔的估值與區間。找不到回 null——
+     使用者可以輸入任何代號，不限於名單上的。 */
+  function screenRowFor(code) {
+    var screens = (window.SCREEN || {}).screens || {};
+    for (var k in screens) {
+      if (!Object.prototype.hasOwnProperty.call(screens, k)) continue;
+      var items = screens[k].items || [];
+      for (var i = 0; i < items.length; i++) {
+        if (items[i].code === code) return items[i];
+      }
+    }
+    return null;
+  }
+
+  /* 現價落在累積區間的百分位。資料不足回 null，不硬算。 */
+  function rangePct(row, price) {
+    if (!row || price == null) return null;
+    if (row.high == null || row.low == null || row.high <= row.low) return null;
+    return Math.max(0, Math.min(100,
+      Math.round(((price - row.low) / (row.high - row.low)) * 100)));
   }
 
   /* 觀察名單：把網站上寫的篩選條件，實際套在證交所公開資料上的結果。

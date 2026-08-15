@@ -338,7 +338,7 @@ async function run(vp) {
         cashflow: { criteria: ["殖利率 ≥ 4%", "本益比 0～20"], manual: ["連續配息年數要自己查"],
                     // high/low/histDays 是 Action 累積出來的收盤價區間
                     items: [{ code: "2884", name: "玉山金", pe: 12.3, yield: 5.4,
-                              high: 32.5, low: 24.1, histDays: 250 }] },
+                              close: 28.5, high: 32.5, low: 24.1, histDays: 250 }] },
         research: { criteria: ["本益比 0～25"], manual: ["三率趨勢要自己查"],
                     items: [{ code: "2330", name: "台積電", pe: 21.5, yield: 1.8 }] },
         riskFirst: { criteria: [], manual: ["先把部位大小定下來"], items: [] }
@@ -384,6 +384,45 @@ async function run(vp) {
   const filled = await page.locator("#stk").inputValue();
   ok(filled.length > 0, `點名單會帶入標的欄位（${filled}）`);
   ok((await rows.first().getAttribute("class")).includes("on"), "被點選的那列有選取樣式");
+
+  // ---- 輸入代號要帶出資料，而不是只當標籤 ----
+  await page.waitForSelector(".stk-ctx", { timeout: 8000 });
+  const ctx1 = await page.locator(".stk-ctx").textContent();
+  ok(/2884/.test(ctx1), "帶出代號");
+  ok(/玉山金/.test(ctx1), "帶出名稱");
+  ok(/收盤/.test(ctx1) && /28\.50/.test(ctx1),
+     "沒有報價代理時，退回名單裡的收盤價而不是留白");
+  ok(/本益比 12\.30/.test(ctx1), "帶出本益比");
+  ok(/殖利率 5\.40%/.test(ctx1), "帶出殖利率");
+
+  // 第四題的提示：給資料但不幫使用者選
+  const hint = await page.locator(".pos-hint").textContent();
+  ok(/現價約在/.test(hint), `第四題帶出區間位置（${hint.trim().slice(0, 40)}…）`);
+  ok(/近一年區間/.test(hint), "累積滿一年時標成近一年區間");
+  ok(/還是你自己選/.test(hint), "明講這是資料不是答案");
+  ok((await page.locator('[data-q="position"] [aria-checked="true"]').count()) === 0,
+     "提示不會自動幫使用者選答案");
+
+  // 換成另一條路徑名單裡的代號：查表要跨三條路徑找，不能只找目前這條
+  await page.fill("#stk", "2330");
+  await page.waitForTimeout(900);
+  const ctxCross = await page.locator(".stk-ctx").textContent();
+  ok(/2330/.test(ctxCross), "換代號會重查");
+  ok(/台積電/.test(ctxCross) && /本益比 21\.50/.test(ctxCross),
+     "在別條路徑名單裡的代號也查得到估值");
+
+  // 完全不在名單裡的代號
+  await page.fill("#stk", "9999");
+  await page.waitForTimeout(900);
+  const ctxNone = await page.locator(".stk-ctx").textContent();
+  ok(/9999/.test(ctxNone), "名單外的代號仍然顯示代號");
+  ok(/查不到|不在目前的觀察名單裡/.test(ctxNone),
+     "名單外的代號誠實說沒有資料，不編一個出來");
+
+  // 打一半不該亂查
+  await page.fill("#stk", "23");
+  await page.waitForTimeout(900);
+  ok((await page.locator(".stk-ctx").count()) === 0, "代號打不完整時不顯示資料卡");
 
   // ---- 盤中報價：預設關閉，設定之後要接得上 ----
   ok(/想看盤中報價/.test(await page.locator(".card").nth(1).textContent()),
