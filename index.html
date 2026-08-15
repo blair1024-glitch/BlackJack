@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>起手式 — 台股學習定位測驗</title>
+<meta name="description" content="3 分鐘 13 題，找出你的台股學習起手式。依你的實際作答算出準備度、學習路徑與入門節奏，全程免費、不必註冊。">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#1f5fe0">
+<!-- TODO: repo 建好後填上 GitHub Pages 網址 -->
+<!-- <link rel="canonical" href="https://<user>.github.io/<repo>/"> -->
+<meta property="og:type" content="website">
+<meta property="og:title" content="起手式 — 台股學習定位測驗">
+<meta property="og:description" content="13 題，找出你的台股學習起手式。結果依你的實際作答計算，不是罐頭答案。">
+<meta property="og:locale" content="zh_TW">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%231f5fe0'/><path d='M22 66 L42 46 L56 60 L78 34' fill='none' stroke='white' stroke-width='9' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<a class="skip-link" href="#app">跳到主要內容</a>
+
+<header class="masthead" id="masthead">
+  <div class="masthead-inner">
+    <button class="icon-btn" id="back-btn" type="button" aria-label="回上一題" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+
+    <div class="brand" id="brand">
+      <svg class="brand-mark" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+        <rect width="100" height="100" rx="24"/>
+        <path d="M22 66 L42 46 L56 60 L78 34" fill="none" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span class="brand-name">起手式</span>
+    </div>
+
+    <button class="icon-btn" id="theme-btn" type="button" aria-label="切換深色／淺色模式" title="切換深色／淺色模式">◐</button>
+  </div>
+
+  <div class="progress" id="progress" hidden>
+    <div class="progress-track">
+      <div class="progress-fill" id="progress-fill"></div>
+    </div>
+    <div class="progress-meta">
+      <span id="progress-label">第 1 題 / 共 13 題</span>
+      <span id="progress-pct" class="tnum">0%</span>
+    </div>
+    <span class="sr-only" id="progress-live" aria-live="polite"></span>
+  </div>
+</header>
+
+<main id="app" class="app" tabindex="-1"></main>
+
+<noscript>
+  <div class="noscript">這個測驗需要 JavaScript 才能運作，請開啟後重新整理。</div>
+</noscript>
+
+<footer class="site-foot">
+  <p class="demo-note"><strong>這是產品原型</strong>：沒有後端、沒有金流、沒有追蹤碼。方案價格與評價為<strong>示範資料</strong>，僅用於呈現版面。</p>
+  <p class="disclaimer">本站為投資<strong>教育</strong>用途，依你的作答提供學習路徑建議，<strong>不構成任何投資建議</strong>，也不保證任何投資結果。所有市場數據與制度規定請以主管機關及公司正式公告為準。</p>
+</footer>
+
+<script src="assets/analytics.js"></script>
+<script src="assets/quiz-data.js"></script>
+<script src="assets/scoring.js"></script>
+<script src="assets/chart.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>
